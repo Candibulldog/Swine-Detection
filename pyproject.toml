@@ -1,0 +1,18 @@
+# pyproject.toml
+
+[tool.ruff]
+src = ["src"]
+
+line-length = 88
+
+target-version = "py310"
+
+[tool.ruff.lint]
+# "E": pycodestyle errors (語法錯誤)
+# "W": pycodestyle warnings (風格警告)
+# "F": Pyflakes (未使用的變數/引入等)
+# "I": isort (自動排序 import)
+select = ["E", "W", "F", "I"]
+
+[tool.ruff.format]
+quote-style = "double"
