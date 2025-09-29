@@ -205,3 +205,38 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ===================================================================
+# CVPDL HW1 Project Specific Rules (Added by me)
+# ===================================================================
+
+# 1. Datasets and Archives
+#    Never commit datasets to the repository.
+data/
+*.zip
+*.tar.gz
+
+# 2. Model Checkpoints and Outputs
+#    Trained models are usually large and should not be versioned.
+*.pth
+*.pt
+*.ckpt
+*.onnx
+checkpoints/
+outputs/
+results/
+submissions/
+
+# 3. Log files and reports
+#    Log files are machine-specific and change frequently.
+*.log
+logs/
+*.pdf
+
+# 4. IDE / Editor specific (Ensuring they are ignored)
+.vscode/
+.idea/
+
+# 5. OS specific
+.DS_Store
+Thumbs.db
