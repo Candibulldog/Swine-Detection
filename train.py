@@ -8,7 +8,7 @@ from src.engine import evaluate, train_one_epoch
 from src.model import create_model
 from src.transforms import get_transform
 from src.utils import collate_fn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 # ==================================
 # 1. 超參數設定 (Hyperparameters)
@@ -23,32 +23,33 @@ DATA_ROOT = "/content/data"  # 在 Colab 中的資料路徑
 
 def main():
     # ==================================
-    # 2. 準備資料 (Dataset & DataLoader)
+    # 2. 準備資料 (Dataset & DataLoader) (最終修正版)
     # ==================================
-    # 建立包含所有資料的完整 dataset (此時先不套用 transform)
-    full_dataset = PigDataset(root_dir=DATA_ROOT, transforms=None)
+    # 建立一個套用了訓練 transform 的完整資料集
+    dataset = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=True))
+    # 建立一個套用了驗證 transform 的資料集副本
+    dataset_val = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=False))
 
-    # 切分訓練集和驗證集 (例如 80% 訓練, 20% 驗證)
-    train_size = int(0.8 * len(full_dataset))
-    val_size = len(full_dataset) - train_size
-    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    # 隨機打亂索引
+    indices = torch.randperm(len(dataset)).tolist()
 
-    # **重要**: 為訓練集和驗證集分別設定各自的 transform
-    train_dataset.dataset.transforms = get_transform(train=True)
-    val_dataset.dataset.transforms = get_transform(train=False)
+    # 按照索引切分兩個獨立的 dataset
+    split_point = int(0.8 * len(dataset))
+    train_dataset = torch.utils.data.Subset(dataset, indices[:split_point])
+    val_dataset = torch.utils.data.Subset(dataset_val, indices[split_point:])
 
     # 建立 DataLoader
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        collate_fn=collate_fn,  # !! 使用我們自定義的 collate_fn
+        collate_fn=collate_fn,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
-        collate_fn=collate_fn,  # !! 使用我們自定義的 collate_fn
+        collate_fn=collate_fn,
     )
 
     print(f"訓練集大小: {len(train_dataset)}")
