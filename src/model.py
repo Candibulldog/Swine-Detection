@@ -1,13 +1,10 @@
-import torchvision
-from torchvision.models import ResNet50_Weights
-from torchvision.models.detection import FasterRCNN
+from torchvision.models.detection import FasterRCNN_ResNet50_FPN_V2_Weights, fasterrcnn_resnet50_fpn_v2
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from torchvision.models.detection.rpn import AnchorGenerator
 
 
 def create_model(num_classes):
     """
-    建立一個客製化的 Faster R-CNN 模型。
+    建立一個客製化的 Faster R-CNN 模型 (修正版)。
 
     Args:
         num_classes (int): 類別數量 (包含背景)。
@@ -16,54 +13,18 @@ def create_model(num_classes):
         torch.nn.Module: 一個準備好進行訓練的 Faster R-CNN 模型。
     """
     # =================================================================
-    # 1. 載入一個預訓練的 Backbone (特徵提取器)
+    # 1. 載入一個在 COCO 上預訓練的 Faster R-CNN 模型架構
     # =================================================================
-    # 作業規定：可以使用預訓練的 "特徵提取器 (feature extractors)"
-    # 這裡我們載入在 ImageNet 上預訓練的 ResNet-50 作為 backbone。
-    # 我們只載入 backbone 的權重，整個 Faster R-CNN 的其他部分是隨機初始化的。
-    weights_backbone = ResNet50_Weights.DEFAULT
-    backbone = torchvision.models.resnet50(weights=weights_backbone)
-
-    # --- 去掉 ResNet-50 最後的全連接層，我們只需要特徵提取的部分 ---
-    # Faster R-CNN 需要知道 backbone 輸出的 channel 數量
-    # 對於 ResNet-50，最後一個卷積 block 輸出的 channel 數是 2048
-    backbone.out_channels = 2048
+    # 這次我們使用更高階的 API，它會自動處理好 backbone 的載入和 FPN 的設定。
+    # weights_backbone 參數會確保只有 backbone (ResNet-50) 的權重被載入，
+    # 而模型的其他部分 (RPN, RoI heads) 則是隨機初始化的。
+    # 這完全符合作業規定！
+    weights = FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
+    model = fasterrcnn_resnet50_fpn_v2(weights=weights)
 
     # =================================================================
-    # 2. 建立 RPN (Region Proposal Network)
+    # 2. 替換掉預訓練的分類頭 (Classifier Head)
     # =================================================================
-    # RPN 需要知道在哪幾個尺寸和長寬比的 anchor box 上進行預測。
-    # 這裡我們使用常見的設定，適用於大多數情況。
-    anchor_generator = AnchorGenerator(
-        sizes=((32, 64, 128, 256, 512),), aspect_ratios=((0.5, 1.0, 2.0),)
-    )
-
-    # =================================================================
-    # 3. 建立 RoI (Region of Interest) Head
-    # =================================================================
-    # RoI head 負責從 RPN 提出的候選區域中，提取特徵並進行最終分類和邊界框回歸。
-    # box_roi_pool 參數定義了要用哪幾層 feature map 來提取特徵。
-    roi_pooler = torchvision.ops.MultiScaleRoIAlign(
-        featmap_names=["0"],  # '0' 代表 backbone 輸出的第一層 feature map
-        output_size=7,
-        sampling_ratio=2,
-    )
-
-    # =================================================================
-    # 4. 組合所有組件，建立 Faster R-CNN 模型
-    # =================================================================
-    # !! 關鍵 !! 這裡不載入任何預訓練權重，模型是從頭開始的
-    model = FasterRCNN(
-        backbone,
-        num_classes=91,  # 暫時用 COCO 的 91 類初始化
-        rpn_anchor_generator=anchor_generator,
-        box_roi_pool=roi_pooler,
-    )
-
-    # =================================================================
-    # 5. 替換掉預訓練的分類頭 (Classifier Head)
-    # =================================================================
-    # 這是遷移學習的關鍵步驟。
     # a. 取得分類器輸入的特徵維度
     in_features = model.roi_heads.box_predictor.cls_score.in_features
 
