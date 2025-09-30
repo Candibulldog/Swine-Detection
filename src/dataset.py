@@ -7,26 +7,43 @@ from torch.utils.data import Dataset
 
 
 class PigDataset(Dataset):
-    def __init__(self, root_dir, transforms=None, annotations_df=None):  # <-- 新增 annotations_df 參數
+    def __init__(self, root_dir, transforms=None, annotations_df=None):
+        """
+        初始化 Dataset (最終健壯版)。
+        """
         self.root_dir = root_dir
         self.transforms = transforms
 
         self.data_dir = os.path.join(self.root_dir, "train")
         self.image_dir = os.path.join(self.data_dir, "img")
 
+        # 1. 決定標註的來源 (傳入的 DataFrame 或讀取 gt.txt)
         if annotations_df is not None:
-            # 如果提供了 DataFrame，就直接使用它
-            self.annotations = annotations_df
+            all_annotations = annotations_df
         else:
-            # 否則，像以前一樣讀取完整的 gt.txt
             annotations_path = os.path.join(self.data_dir, "gt.txt")
             column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
-            self.annotations = pd.read_csv(annotations_path, header=None, names=column_names)
+            all_annotations = pd.read_csv(annotations_path, header=None, names=column_names)
 
-        # 後續的邏輯保持不變，都基於 self.annotations
-        self.image_frames = sorted(self.annotations["frame"].unique())
+        # === [ !! 關鍵修正：恢復檔案存在性檢查 !! ] ==========================
+        # 2. 取得實際存在的所有圖片檔名，並轉換為 frame ID 的集合
+        all_image_files = os.listdir(self.image_dir)
+        existing_frames_set = {int(fname.split(".")[0]) for fname in all_image_files if fname.endswith(".jpg")}
 
-        print(f"Dataset 初始化成功，包含 {len(self.image_frames)} 筆有效資料。")
+        # 3. 取得當前標註 DataFrame 中提到的所有 frame ID 的集合
+        annotated_frames_set = set(all_annotations["frame"].unique())
+
+        # 4. 找出兩者的交集，這才是真正有效的 frame ID
+        valid_frames_set = existing_frames_set.intersection(annotated_frames_set)
+
+        # 5. 用這個絕對有效的 frame ID 集合，來過濾我們最終使用的 annotations
+        self.annotations = all_annotations[all_annotations["frame"].isin(valid_frames_set)]
+        # ======================================================================
+
+        # 6. 建立最終的圖片列表
+        self.image_frames = sorted(list(self.annotations["frame"].unique()))
+
+        print(f"Dataset 初始化成功，找到 {len(self.image_frames)} 張圖片與標註均有效的資料。")
 
     def __len__(self):
         """
