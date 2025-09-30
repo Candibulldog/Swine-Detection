@@ -3,10 +3,9 @@ import os
 import torch
 import torch.utils.data
 import torchvision
+import torchvision.transforms as T
 from pycocotools import mask as coco_mask
 from pycocotools.coco import COCO
-
-import transforms as T
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):
@@ -198,9 +197,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         return img, target
 
 
-def get_coco(
-    root, image_set, transforms, mode="instances", use_v2=False, with_masks=False
-):
+def get_coco(root, image_set, transforms, mode="instances", use_v2=False, with_masks=False):
     anno_file_template = "{}_{}2017.json"
     PATHS = {
         "train": (
@@ -221,9 +218,7 @@ def get_coco(
     if use_v2:
         from torchvision.datasets import wrap_dataset_for_transforms_v2
 
-        dataset = torchvision.datasets.CocoDetection(
-            img_folder, ann_file, transforms=transforms
-        )
+        dataset = torchvision.datasets.CocoDetection(img_folder, ann_file, transforms=transforms)
         target_keys = ["boxes", "labels", "image_id"]
         if with_masks:
             target_keys += ["masks"]
