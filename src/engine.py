@@ -84,18 +84,11 @@ def evaluate(model, data_loader, device):
         #    格式: [{'boxes': tensor, 'labels': tensor, 'scores': tensor}, ...]
         outputs = model(images)
 
-        # 3. 將 PyTorch Tensors 轉換為 CPU 上的 NumPy arrays，以便評估
-        outputs = [
-            {k: v.to(torch.device("cpu")).numpy() for k, v in t.items()}
-            for t in outputs
-        ]
-
+        # 3. 讓 outputs 字典裡的值保持為 PyTorch Tensor 即可
+        outputs = [{k: v.to(torch.device("cpu")) for k, v in t.items()} for t in outputs]
         # 4. 格式化 targets 以符合評估器要求
         #    評估器需要 targets 包含一個 'image_id' 鍵
-        res = {
-            target["image_id"].item(): output
-            for target, output in zip(targets, outputs)
-        }
+        res = {target["image_id"].item(): output for target, output in zip(targets, outputs)}
 
         # 5. 將這一批次的預測結果餵給評估器
         coco_evaluator.update(res)
