@@ -88,12 +88,10 @@ class PigDataset(Dataset):
         # 4. 將標註轉換成 PyTorch Tensors
         # 大部分的 PyTorch 模型要求 bounding box 格式為 [xmin, ymin, xmax, ymax]
         boxes = []
+        areas = []  # <-- 新增一個 list 來存放面積
         for _, row in records.iterrows():
-            # === [ 新增的過濾器 ] =======================================
-            # 檢查寬度和高度是否大於 0，如果不是，就跳過這個無效的標註
             if row["bb_width"] < 1 or row["bb_height"] < 1:
                 continue
-            # ==========================================================
 
             xmin = row["bb_left"]
             ymin = row["bb_top"]
@@ -101,24 +99,32 @@ class PigDataset(Dataset):
             ymax = ymin + row["bb_height"]
             boxes.append([xmin, ymin, xmax, ymax])
 
-        # 如果過濾後這張圖片沒有任何有效的 box，boxes list 會是空的。
-        # torch.as_tensor 會創建一個 shape 為 [0, 4] 的 tensor，
-        # 這對於模型來說是完全可以接受的（代表一張沒有物體的圖片）。
+            # === [ 新增的部分 ] ========================================
+            # 計算每個 bounding box 的面積
+            area = row["bb_width"] * row["bb_height"]
+            areas.append(area)
+            # ==========================================================
+
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        areas = torch.as_tensor(areas, dtype=torch.float32)  # <-- 將 areas 轉換為 Tensor
 
         # 建立 labels tensor
-        # 我們的類別只有 "pig"，其 class id 設為 1 (0 通常留給背景)
-        num_pigs = len(records)
-        labels = torch.ones((num_pigs,), dtype=torch.int64)
+        # **注意**: 這裡的長度應該基於有效的 box 數量，也就是 len(boxes)
+        num_boxes = len(boxes)
+        labels = torch.ones((num_boxes,), dtype=torch.int64)
+
+        # === [ 新增 iscrowd Tensor ] ==================================
+        # 我們的資料集中沒有 "crowd" 標註，所以全部設為 0
+        iscrowd = torch.zeros((num_boxes,), dtype=torch.int64)
+        # ==========================================================
 
         # 建立 target 字典
         target = {}
         target["boxes"] = boxes
         target["labels"] = labels
-
-        # CocoEvaluator 需要 image_id 來對應預測和真實標註
-        # 我們可以直接使用圖片的索引 idx 作為 image_id
         target["image_id"] = torch.tensor([idx])
+        target["area"] = areas  # <-- 將 areas 加入 target
+        target["iscrowd"] = iscrowd  # <-- 將 iscrowd 加入 target
 
         # 5. (可選) 應用資料增強
         if self.transforms:
