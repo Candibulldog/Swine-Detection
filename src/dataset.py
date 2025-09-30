@@ -91,7 +91,7 @@ class PigDataset(Dataset):
         for _, row in records.iterrows():
             # === [ 新增的過濾器 ] =======================================
             # 檢查寬度和高度是否大於 0，如果不是，就跳過這個無效的標註
-            if row["bb_width"] <= 0 or row["bb_height"] <= 0:
+            if row["bb_width"] < 1 or row["bb_height"] < 1:
                 continue
             # ==========================================================
 
