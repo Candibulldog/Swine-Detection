@@ -1,8 +1,11 @@
-# src/transforms.py (修正為 v1 API)
-import torchvision.transforms as T
+# src/transforms.py
+
+import random
+
+import torchvision.transforms.functional as F
 
 
-# 為了手動處理 bounding box 的轉換，我們需要一個輔助類
+# Compose 類保持不變
 class Compose:
     def __init__(self, transforms):
         self.transforms = transforms
@@ -13,26 +16,30 @@ class Compose:
         return image, target
 
 
-# 這個 transform 只會作用在 image 上
+# ToTensor 類保持不變
 class ToTensor:
     def __call__(self, image, target):
-        return T.ToTensor()(image), target
+        # 將 PIL Image 轉換為 PyTorch Tensor
+        image = F.to_tensor(image)
+        return image, target
 
 
-# 這個 transform 會同時作用在 image 和 target 上
+# RandomHorizontalFlip 類進行修正
 class RandomHorizontalFlip:
     def __init__(self, prob):
         self.prob = prob
 
     def __call__(self, image, target):
-        import random
-
-        import torchvision.transforms.functional as F
-
         if random.random() < self.prob:
+            # --- !! 關鍵修正 !! ---
+            # image 現在是一個 Tensor，形狀是 [C, H, W] (通道, 高, 寬)
+            # 我們用 image.shape[-1] 來獲取寬度，而不是 image.size
+            height, width = image.shape[-2:]
+
+            # F.hflip 可以同時處理 PIL Image 和 Tensor
             image = F.hflip(image)
-            # 我們也必須手動翻轉 bounding box！
-            width, _ = image.size
+
+            # 手動翻轉 bounding box 的邏輯保持不變
             bbox = target["boxes"]
             bbox[:, [0, 2]] = width - bbox[:, [2, 0]]
             target["boxes"] = bbox
@@ -41,7 +48,9 @@ class RandomHorizontalFlip:
 
 def get_transform(train):
     transforms = []
+    # 順序很重要：先做 Tensor 轉換
     transforms.append(ToTensor())
     if train:
+        # 然後再做其他基於 Tensor 的操作
         transforms.append(RandomHorizontalFlip(0.5))
     return Compose(transforms)
