@@ -7,54 +7,26 @@ from torch.utils.data import Dataset
 
 
 class PigDataset(Dataset):
-    """
-    客製化 PyTorch Dataset 用於豬隻物件偵測。
-    這個 class 負責讀取圖片和對應的標註。
-    """
-
-    def __init__(self, root_dir, transforms=None):
-        """
-        初始化 Dataset。
-        """
+    def __init__(self, root_dir, transforms=None, annotations_df=None):  # <-- 新增 annotations_df 參數
         self.root_dir = root_dir
         self.transforms = transforms
 
         self.data_dir = os.path.join(self.root_dir, "train")
         self.image_dir = os.path.join(self.data_dir, "img")
-        annotations_path = os.path.join(self.data_dir, "gt.txt")
 
-        # 1. 讀取所有標註
-        column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
-        all_annotations = pd.read_csv(annotations_path, header=None, names=column_names)
+        if annotations_df is not None:
+            # 如果提供了 DataFrame，就直接使用它
+            self.annotations = annotations_df
+        else:
+            # 否則，像以前一樣讀取完整的 gt.txt
+            annotations_path = os.path.join(self.data_dir, "gt.txt")
+            column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
+            self.annotations = pd.read_csv(annotations_path, header=None, names=column_names)
 
-        # 2. 取得實際存在的所有圖片檔名，並轉換為 frame ID
-        all_image_files = os.listdir(self.image_dir)
+        # 後續的邏輯保持不變，都基於 self.annotations
+        self.image_frames = sorted(self.annotations["frame"].unique())
 
-        # === [修正長度問題 1: 將 set comprehension 包在括號中] ===
-        # 我們將整個表達式轉換為一個產生器 (generator)，再傳入 set()
-        # 這樣就可以利用括號內的隱式換行，非常 Pythonic！
-        existing_frames_set = set(int(fname.split(".")[0]) for fname in all_image_files if fname.endswith(".jpg"))
-        # =======================================================
-
-        # 3. 取得標註檔中提到的所有 frame ID
-        annotated_frames_set = set(all_annotations["frame"].unique())
-
-        # 4. 找出兩者的交集
-        valid_frames_set = existing_frames_set.intersection(annotated_frames_set)
-
-        # 5. 過濾 annotations
-        self.annotations = all_annotations[all_annotations["frame"].isin(valid_frames_set)]
-
-        # 6. 建立圖片列表
-        self.image_frames = sorted(list(valid_frames_set))
-
-        # === [修正長度問題 2: 將 f-string 拆成多行] ===
-        # Python 會自動合併相鄰的字串。我們可以利用這個特性和括號來換行。
-        print(
-            f"找到 {len(all_image_files)} 個圖片檔，"
-            f"{len(annotated_frames_set)} 個被標註的影格，"
-            f"有效資料共 {len(self.image_frames)} 筆。"
-        )
+        print(f"Dataset 初始化成功，包含 {len(self.image_frames)} 筆有效資料。")
 
     def __len__(self):
         """

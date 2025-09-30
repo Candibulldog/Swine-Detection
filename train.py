@@ -1,5 +1,9 @@
 # train.py
 
+import os
+import random
+
+import pandas as pd
 import torch
 
 # 從 src 資料夾中引入我們寫好的模組
@@ -23,22 +27,31 @@ DATA_ROOT = "/content/data"  # 在 Colab 中的資料路徑
 
 def main():
     # ==================================
-    # 2. 準備資料 (Dataset & DataLoader) (最終修正版)
+    # 2. 準備資料 (Dataset & DataLoader)
     # ==================================
-    # 建立一個套用了訓練 transform 的完整資料集
-    dataset = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=True))
-    # 建立一個套用了驗證 transform 的資料集副本
-    dataset_val = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=False))
+    # 1. 先讀取一次完整的標註檔
+    annotations_path = os.path.join(DATA_ROOT, "train", "gt.txt")
+    column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
+    full_annotations = pd.read_csv(annotations_path, header=None, names=column_names)
 
-    # 隨機打亂索引
-    indices = torch.randperm(len(dataset)).tolist()
+    # 2. 獲取所有獨一無二的圖片 frame ID，並打亂順序
+    all_frames = full_annotations["frame"].unique()
+    random.shuffle(all_frames)  # <-- 需要 import random
 
-    # 按照索引切分兩個獨立的 dataset
-    split_point = int(0.8 * len(dataset))
-    train_dataset = torch.utils.data.Subset(dataset, indices[:split_point])
-    val_dataset = torch.utils.data.Subset(dataset_val, indices[split_point:])
+    # 3. 切分 frame ID 列表
+    split_point = int(0.8 * len(all_frames))
+    train_frames = all_frames[:split_point]
+    val_frames = all_frames[split_point:]
 
-    # 建立 DataLoader
+    # 4. 根據切分好的 frame ID 來過濾 DataFrame
+    train_df = full_annotations[full_annotations["frame"].isin(train_frames)]
+    val_df = full_annotations[full_annotations["frame"].isin(val_frames)]
+
+    # 5. 用切分好的 DataFrame 來初始化兩個獨立的 Dataset
+    train_dataset = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=True), annotations_df=train_df)
+    val_dataset = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=False), annotations_df=val_df)
+
+    # 建立 DataLoader (這部分不變)
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
@@ -71,15 +84,27 @@ def main():
     # ==================================
     # 4. 訓練迴圈 (Training Loop)
     # ==================================
+    best_map = 0.0  # 用來記錄目前最好的 mAP 分數
+
     print("\n--- 開始訓練 ---")
     for epoch in range(NUM_EPOCHS):
-        # 呼叫 engine 中的函式來進行訓練
         train_one_epoch(model, optimizer, train_loader, DEVICE, epoch)
 
-        # 呼叫 engine 中的函式來進行驗證
-        evaluate(model, val_loader, DEVICE)
+        # 呼叫 evaluate 並獲取評估結果
+        coco_evaluator = evaluate(model, val_loader, DEVICE)
+
+        # 從評估結果中提取 mAP_50:95 的分數 (它在 stats[0])
+        current_map = coco_evaluator.coco_eval["bbox"].stats[0]
+
+        # 檢查是否是目前最好的模型
+        if current_map > best_map:
+            best_map = current_map
+            # 如果是，就儲存它！
+            torch.save(model.state_dict(), "best_model.pth")
+            print(f"🎉 New best model saved with mAP: {best_map:.4f} at epoch {epoch + 1}")
 
     print("\n--- 訓練完成 ---")
+    print(f"整個訓練過程中最好的 mAP 分數是: {best_map:.4f}")
 
     # 儲存模型權重
     torch.save(model.state_dict(), "fasterrcnn_pig_detector.pth")
