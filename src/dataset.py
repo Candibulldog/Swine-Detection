@@ -122,7 +122,7 @@ class PigDataset(Dataset):
         target = {}
         target["boxes"] = boxes
         target["labels"] = labels
-        target["image_id"] = torch.tensor([idx])
+        target["image_id"] = torch.tensor([frame_id])
         target["area"] = areas  # <-- 將 areas 加入 target
         target["iscrowd"] = iscrowd  # <-- 將 iscrowd 加入 target
 
