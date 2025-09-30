@@ -89,12 +89,21 @@ class PigDataset(Dataset):
         # 大部分的 PyTorch 模型要求 bounding box 格式為 [xmin, ymin, xmax, ymax]
         boxes = []
         for _, row in records.iterrows():
+            # === [ 新增的過濾器 ] =======================================
+            # 檢查寬度和高度是否大於 0，如果不是，就跳過這個無效的標註
+            if row["bb_width"] <= 0 or row["bb_height"] <= 0:
+                continue
+            # ==========================================================
+
             xmin = row["bb_left"]
             ymin = row["bb_top"]
             xmax = xmin + row["bb_width"]
             ymax = ymin + row["bb_height"]
             boxes.append([xmin, ymin, xmax, ymax])
 
+        # 如果過濾後這張圖片沒有任何有效的 box，boxes list 會是空的。
+        # torch.as_tensor 會創建一個 shape 為 [0, 4] 的 tensor，
+        # 這對於模型來說是完全可以接受的（代表一張沒有物體的圖片）。
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
 
         # 建立 labels tensor
