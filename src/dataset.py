@@ -7,31 +7,31 @@ from torch.utils.data import Dataset
 
 
 class PigDataset(Dataset):
-    def __init__(self, root_dir, frame_ids, transforms=None):
-        """
-        初始化 Dataset (釜底抽薪最終版)。
-
-        Args:
-            root_dir (string): 資料集根目錄 '/content/data'。
-            frame_ids (list): 一個只包含屬於這個資料集 (train/val) 的 frame ID 的 list。
-            transforms (callable, optional): 資料增強。
-        """
+    # 在 __init__ 中加入一個 'is_train' 參數
+    def __init__(self, root_dir, frame_ids, is_train=True, transforms=None):
         self.root_dir = root_dir
         self.transforms = transforms
+        self.is_train = is_train
 
-        self.data_dir = os.path.join(self.root_dir, "train")
+        # 根據 is_train 決定要讀取的資料夾
+        if self.is_train:
+            self.data_dir = os.path.join(self.root_dir, "train")
+            annotations_path = os.path.join(self.data_dir, "gt.txt")
+            column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
+            full_annotations = pd.read_csv(annotations_path, header=None, names=column_names)
+            self.annotations = full_annotations[full_annotations["frame"].isin(frame_ids)]
+        else:
+            # 測試模式下，沒有標註
+            self.data_dir = os.path.join(self.root_dir, "test")
+            self.annotations = None
+
         self.image_dir = os.path.join(self.data_dir, "img")
-        annotations_path = os.path.join(self.data_dir, "gt.txt")
 
-        # 1. 讀取一次完整的標註檔
-        column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
-        full_annotations = pd.read_csv(annotations_path, header=None, names=column_names)
-
-        # 2. **關鍵**：直接使用傳入的 frame_ids 來過濾標註
-        self.annotations = full_annotations[full_annotations["frame"].isin(frame_ids)]
-
-        # 3. 建立最終的圖片列表 (就是傳進來的 frame_ids)
-        self.image_frames = sorted(frame_ids)
+        # 如果是測試模式，frame_ids 就是所有圖片檔名
+        if not self.is_train:
+            self.image_frames = sorted([int(f.split(".")[0]) for f in os.listdir(self.image_dir)])
+        else:
+            self.image_frames = sorted(frame_ids)
 
         print(f"Dataset 初始化成功，模式: {'Train' if transforms else 'Val'}，包含 {len(self.image_frames)} 筆資料。")
 
@@ -52,6 +52,15 @@ class PigDataset(Dataset):
         image_name = f"{frame_id:08d}.jpg"
         image_path = os.path.join(self.image_dir, image_name)
         image = Image.open(image_path).convert("RGB")
+
+        # 對於測試集，我們只需要回傳圖片和 image_id
+        if not self.is_train:
+            # 建立一個只包含 image_id 的 target
+            target = {"image_id": torch.tensor([frame_id])}
+            if self.transforms:
+                # 測試集只需要 ToTensor
+                image = self.transforms(image)
+            return image, target
 
         # 3. 篩選出這張圖片對應的所有標註
         records = self.annotations[self.annotations["frame"] == frame_id]

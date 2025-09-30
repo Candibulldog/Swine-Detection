@@ -48,8 +48,19 @@ def main():
 
     # 3. 用切分好的 Frame ID 列表來初始化兩個【完全獨立】的 Dataset
     #    不再使用 Subset 或 random_split！
-    train_dataset = PigDataset(root_dir=DATA_ROOT, frame_ids=train_frames, transforms=get_transform(train=True))
-    val_dataset = PigDataset(root_dir=DATA_ROOT, frame_ids=val_frames, transforms=get_transform(train=False))
+    train_dataset = PigDataset(
+        root_dir=DATA_ROOT,
+        frame_ids=train_frames,
+        is_train=True,
+        transforms=get_transform(train=True),
+    )
+
+    val_dataset = PigDataset(
+        root_dir=DATA_ROOT,
+        frame_ids=val_frames,
+        is_train=True,
+        transforms=get_transform(train=False),
+    )
 
     # 建立 DataLoader (這部分不變)
     train_loader = DataLoader(
