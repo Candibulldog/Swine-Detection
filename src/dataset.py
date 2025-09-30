@@ -88,6 +88,10 @@ class PigDataset(Dataset):
         target["boxes"] = boxes
         target["labels"] = labels
 
+        # CocoEvaluator 需要 image_id 來對應預測和真實標註
+        # 我們可以直接使用圖片的索引 idx 作為 image_id
+        target["image_id"] = torch.tensor([idx])
+
         # 5. (可選) 應用資料增強
         if self.transforms:
             image, target = self.transforms(image, target)
