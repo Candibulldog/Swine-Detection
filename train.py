@@ -29,27 +29,27 @@ def main():
     # ==================================
     # 2. 準備資料 (Dataset & DataLoader)
     # ==================================
-    # 1. 先讀取一次完整的標註檔
-    annotations_path = os.path.join(DATA_ROOT, "train", "gt.txt")
-    column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
-    full_annotations = pd.read_csv(annotations_path, header=None, names=column_names)
+    # 1. 獲取所有有效的 Frame ID
+    #    這段邏輯只執行一次，確保我們只使用有圖片且有標註的資料
+    gt_path = os.path.join(DATA_ROOT, "train", "gt.txt")
+    img_dir = os.path.join(DATA_ROOT, "train", "img")
 
-    # 2. 獲取所有獨一無二的圖片 frame ID，並打亂順序
-    all_frames = full_annotations["frame"].unique()
-    random.shuffle(all_frames)  # <-- 需要 import random
+    full_annotations = pd.read_csv(gt_path, header=None, names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"])
+    existing_files = {int(f.split(".")[0]) for f in os.listdir(img_dir)}
+    annotated_frames = set(full_annotations["frame"].unique())
 
-    # 3. 切分 frame ID 列表
-    split_point = int(0.8 * len(all_frames))
-    train_frames = all_frames[:split_point]
-    val_frames = all_frames[split_point:]
+    valid_frames = sorted(list(existing_files.intersection(annotated_frames)))
+    random.shuffle(valid_frames)
 
-    # 4. 根據切分好的 frame ID 來過濾 DataFrame
-    train_df = full_annotations[full_annotations["frame"].isin(train_frames)]
-    val_df = full_annotations[full_annotations["frame"].isin(val_frames)]
+    # 2. 切分 Frame ID 列表
+    split_point = int(0.8 * len(valid_frames))
+    train_frames = valid_frames[:split_point]
+    val_frames = valid_frames[split_point:]
 
-    # 5. 用切分好的 DataFrame 來初始化兩個獨立的 Dataset
-    train_dataset = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=True), annotations_df=train_df)
-    val_dataset = PigDataset(root_dir=DATA_ROOT, transforms=get_transform(train=False), annotations_df=val_df)
+    # 3. 用切分好的 Frame ID 列表來初始化兩個【完全獨立】的 Dataset
+    #    不再使用 Subset 或 random_split！
+    train_dataset = PigDataset(root_dir=DATA_ROOT, frame_ids=train_frames, transforms=get_transform(train=True))
+    val_dataset = PigDataset(root_dir=DATA_ROOT, frame_ids=val_frames, transforms=get_transform(train=False))
 
     # 建立 DataLoader (這部分不變)
     train_loader = DataLoader(
