@@ -65,14 +65,6 @@ class PigDataset(Dataset):
     def __getitem__(self, idx):
         """
         根據索引 idx 獲取一張圖片及其對應的標註。
-
-        Args:
-            idx (int): 資料的索引 (從 0 到 len(dataset)-1)。
-
-        Returns:
-            tuple: (image, target)
-                   image 是一個 PIL Image 物件。
-                   target 是一個包含 'boxes' 和 'labels' 的字典。
         """
         # 1. 從索引 idx 映射到圖片的 frame 編號
         frame_id = self.image_frames[idx]
@@ -80,53 +72,56 @@ class PigDataset(Dataset):
         # 2. 建立圖片路徑並讀取圖片
         image_name = f"{frame_id:08d}.jpg"
         image_path = os.path.join(self.image_dir, image_name)
-        image = Image.open(image_path).convert("RGB")  # 確保是 RGB 格式
+        image = Image.open(image_path).convert("RGB")
 
         # 3. 篩選出這張圖片對應的所有標註
         records = self.annotations[self.annotations["frame"] == frame_id]
 
-        # 4. 將標註轉換成 PyTorch Tensors
-        # 大部分的 PyTorch 模型要求 bounding box 格式為 [xmin, ymin, xmax, ymax]
+        # 4. 初始化 lists 來存放有效的標註
         boxes = []
-        areas = []  # <-- 新增一個 list 來存放面積
+        areas = []
+
+        # 5. 遍歷標註，過濾無效 box，並轉換格式
         for _, row in records.iterrows():
+            # 過濾掉寬度或高度小於 1 像素的無效 box
             if row["bb_width"] < 1 or row["bb_height"] < 1:
                 continue
 
+            # 計算 [xmin, ymin, xmax, ymax]
             xmin = row["bb_left"]
             ymin = row["bb_top"]
             xmax = xmin + row["bb_width"]
             ymax = ymin + row["bb_height"]
             boxes.append([xmin, ymin, xmax, ymax])
 
-            # === [ 新增的部分 ] ========================================
-            # 計算每個 bounding box 的面積
-            area = row["bb_width"] * row["bb_height"]
-            areas.append(area)
-            # ==========================================================
+            # 同步計算面積，確保與 boxes list 長度一致
+            areas.append(row["bb_width"] * row["bb_height"])
 
-        boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        areas = torch.as_tensor(areas, dtype=torch.float32)  # <-- 將 areas 轉換為 Tensor
+        # 6. 將 lists 轉換為 PyTorch Tensors
+        #    如果過濾後沒有任何有效的 box，我們需要回傳空的 Tensors
+        if len(boxes) > 0:
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
+            areas = torch.as_tensor(areas, dtype=torch.float32)
+        else:
+            # 確保即使沒有 box，Tensor 也有正確的 shape (0, 4)
+            boxes = torch.empty((0, 4), dtype=torch.float32)
+            areas = torch.empty((0,), dtype=torch.float32)
 
-        # 建立 labels tensor
-        # **注意**: 這裡的長度應該基於有效的 box 數量，也就是 len(boxes)
-        num_boxes = len(boxes)
+        # 7. 建立其他必要的 Tensors
+        num_boxes = boxes.shape[0]
         labels = torch.ones((num_boxes,), dtype=torch.int64)
-
-        # === [ 新增 iscrowd Tensor ] ==================================
-        # 我們的資料集中沒有 "crowd" 標註，所以全部設為 0
+        image_id = torch.tensor([frame_id])
         iscrowd = torch.zeros((num_boxes,), dtype=torch.int64)
-        # ==========================================================
 
-        # 建立 target 字典
+        # 8. 組裝最終的 target 字典
         target = {}
         target["boxes"] = boxes
         target["labels"] = labels
-        target["image_id"] = torch.tensor([frame_id])
-        target["area"] = areas  # <-- 將 areas 加入 target
-        target["iscrowd"] = iscrowd  # <-- 將 iscrowd 加入 target
+        target["image_id"] = image_id
+        target["area"] = areas
+        target["iscrowd"] = iscrowd
 
-        # 5. (可選) 應用資料增強
+        # 9. (可選) 應用資料增強
         if self.transforms:
             image, target = self.transforms(image, target)
 
