@@ -8,6 +8,15 @@ from pycocotools import mask as coco_mask
 from pycocotools.coco import COCO
 
 
+def all_gather(data):
+    """
+    在單一 GPU 環境下，這個函式的功能很簡單：直接將資料回傳。
+    這是為了讓 coco_eval.py 能夠順利運行。
+    """
+    # 在非分散式訓練中，沒有其他 process，所以直接回傳即可
+    return [data]
+
+
 def convert_coco_poly_to_mask(segmentations, height, width):
     masks = []
     for polygons in segmentations:
