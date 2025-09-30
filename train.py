@@ -62,9 +62,10 @@ def main():
 
     # 設定優化器 (SGD 是一個穩健的選擇)
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(
-        params, lr=LEARNING_RATE, momentum=0.9, weight_decay=0.0005
-    )
+    optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=0.0005)
+
+    print("\n--- 檢查設備 ---")
+    print(f"DEVICE is set to: {DEVICE}")
 
     # ==================================
     # 4. 訓練迴圈 (Training Loop)
