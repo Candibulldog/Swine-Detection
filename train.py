@@ -1,5 +1,6 @@
 # train.py
 
+import argparse
 import os
 import random
 
@@ -19,13 +20,22 @@ from torch.utils.data import DataLoader
 # ==================================
 DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 NUM_CLASSES = 2  # 1 (pig) + 1 (background)
-NUM_EPOCHS = 10
-BATCH_SIZE = 4
-LEARNING_RATE = 0.005
 DATA_ROOT = "/content/data"  # 在 Colab 中的資料路徑
 
 
 def main():
+    # --- 建立參數解析器 ---
+    parser = argparse.ArgumentParser(description="Pig Detection Training Script")
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training")
+    parser.add_argument("--lr", type=float, default=0.005, help="Learning rate")
+    args = parser.parse_args()
+
+    # --- 使用解析出來的參數 ---
+    NUM_EPOCHS = args.epochs
+    BATCH_SIZE = args.batch_size
+    LEARNING_RATE = args.lr
+
     # ==================================
     # 2. 準備資料 (Dataset & DataLoader)
     # ==================================
@@ -116,10 +126,6 @@ def main():
 
     print("\n--- 訓練完成 ---")
     print(f"整個訓練過程中最好的 mAP 分數是: {best_map:.4f}")
-
-    # 儲存模型權重
-    torch.save(model.state_dict(), "fasterrcnn_pig_detector.pth")
-    print("模型已儲存至 fasterrcnn_pig_detector.pth")
 
 
 if __name__ == "__main__":
