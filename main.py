@@ -7,7 +7,7 @@ import sys
 # --- 全域設定 ---
 # 這些是你可能需要調整的參數
 # 你也可以把 train.py 裡的超參數移到這裡，讓設定更集中
-NUM_EPOCHS = 10
+NUM_EPOCHS = 1
 BATCH_SIZE = 4
 LEARNING_RATE = 0.005
 CONF_THRESHOLD = 0.5
