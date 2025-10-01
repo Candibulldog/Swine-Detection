@@ -6,6 +6,7 @@ import random
 
 import pandas as pd
 import torch
+from torch.utils.data import DataLoader
 
 # 從 src 資料夾中引入我們寫好的模組
 from src.dataset import PigDataset
@@ -13,7 +14,6 @@ from src.engine import evaluate, train_one_epoch
 from src.model import create_model
 from src.transforms import get_transform
 from src.utils import collate_fn
-from torch.utils.data import DataLoader
 
 # ==================================
 # 1. 超參數設定 (Hyperparameters)
