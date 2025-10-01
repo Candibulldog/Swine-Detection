@@ -1,6 +1,7 @@
 # train.py
 
 import argparse
+import csv
 import os
 import random
 
@@ -29,12 +30,15 @@ def main():
     parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training")
     parser.add_argument("--lr", type=float, default=0.005, help="Learning rate")
+    parser.add_argument("--output_dir", type=str, default="models", help="Directory to save the best model")
     args = parser.parse_args()
 
     # --- 使用解析出來的參數 ---
     NUM_EPOCHS = args.epochs
     BATCH_SIZE = args.batch_size
     LEARNING_RATE = args.lr
+    MODEL_DIR = args.output_dir
+    os.makedirs(MODEL_DIR, exist_ok=True)
 
     # ==================================
     # 2. 準備資料 (Dataset & DataLoader)
@@ -106,6 +110,12 @@ def main():
     # 4. 訓練迴圈 (Training Loop)
     # ==================================
     best_map = 0.0  # 用來記錄目前最好的 mAP 分數
+    log_file_path = "training_log.csv"  # <-- 改成 .csv
+
+    # 在訓練開始前，用 csv 模組寫入表頭
+    with open(log_file_path, mode="w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Epoch", "mAP_50:95", "AP_50"])
 
     print("\n--- 開始訓練 ---")
     for epoch in range(NUM_EPOCHS):
@@ -116,12 +126,18 @@ def main():
 
         # 從評估結果中提取 mAP_50:95 的分數 (它在 stats[0])
         current_map = coco_evaluator.coco_eval["bbox"].stats[0]
+        current_ap50 = coco_evaluator.coco_eval["bbox"].stats[1]
+
+        # wirte to CSV log file
+        with open(log_file_path, mode="a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([epoch + 1, f"{current_map:.4f}", f"{current_ap50:.4f}"])
 
         # 檢查是否是目前最好的模型
         if current_map > best_map:
             best_map = current_map
-            # 如果是，就儲存它！
-            torch.save(model.state_dict(), "best_model.pth")
+            model_save_path = os.path.join(MODEL_DIR, "best_model.pth")
+            torch.save(model.state_dict(), model_save_path)
             print(f"🎉 New best model saved with mAP: {best_map:.4f} at epoch {epoch + 1}")
 
     print("\n--- 訓練完成 ---")

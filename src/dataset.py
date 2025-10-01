@@ -33,7 +33,8 @@ class PigDataset(Dataset):
         else:
             self.image_frames = sorted(frame_ids)
 
-        print(f"Dataset 初始化成功，模式: {'Train' if transforms else 'Val'}，包含 {len(self.image_frames)} 筆資料。")
+        mode_str = "Train/Val" if self.is_train else "Test"
+        print(f"Dataset 初始化成功，模式: {mode_str}，包含 {len(self.image_frames)} 筆資料。")
 
     def __len__(self):
         """

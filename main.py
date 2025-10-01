@@ -39,9 +39,9 @@ def main():
 
     # --- 步驟 1: 環境設定 ---
     print("\n[步驟 1/4] 正在安裝/更新所需套件...")
-    # run_command("pip install -r requirement.txt -q") # requirement.txt 拼寫錯誤
-    run_command("pip install -r requirements.txt -q")
-    run_command("pip install pycocotools -q")
+    # run_command("pip install -r requirements.txt -q")
+    # run_command("pip install pycocotools -q")
+    run_command("pip install kaggle pycocotools tqdm -q")
     print("✅ 套件安裝完成。")
 
     # --- 步驟 2: 資料準備 ---
@@ -60,7 +60,7 @@ def main():
     # --- 步驟 3: 模型訓練 ---
     print("\n[步驟 3/4] 正在啟動模型訓練...")
     # 使用命令行參數傳遞
-    train_command = f"python src/train.py --epochs {NUM_EPOCHS} --batch_size {BATCH_SIZE} --lr {LEARNING_RATE}"
+    train_command = f"python -u -m src.train --epochs {NUM_EPOCHS} --batch_size {BATCH_SIZE} --lr {LEARNING_RATE}"
     run_command(train_command)
     print("✅ 模型訓練完成。")
 
@@ -69,7 +69,7 @@ def main():
     best_model_path = "./models/best_model.pth"
     if os.path.exists(best_model_path):
         # 使用命令行參數來設定模型路徑和信心閾值
-        predict_command = f"python src/predict.py --model_path {best_model_path} --conf_threshold {CONF_THRESHOLD}"
+        predict_command = f"python -u -m src.predict --model_path {best_model_path} --conf_threshold {CONF_THRESHOLD}"
         run_command(predict_command)
         print("✅ 預測完成！提交檔案已儲存至 submission.csv。")
     else:
