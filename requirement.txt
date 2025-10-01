@@ -1,0 +1,12 @@
+# requirements.txt
+
+# --- Core ML & Computer Vision ---
+torch==2.5.1
+torchvision==0.20.1
+pandas==2.3.2
+numpy==2.0.1
+Pillow==11.1.0
+
+# --- Evaluation & Utilities ---
+pycocotools==2.0.10
+tqdm==4.67.1
