@@ -40,23 +40,28 @@ def seed_worker(_):
 
 
 def filter_annotations(df: pd.DataFrame) -> pd.DataFrame:
-    # 基於數據分析結果，過濾掉無效的 bounding box 標註。
+    """基於數據分析結果，過濾掉無效的 bounding box 標註。"""
     print(f"原始標註數量: {len(df)}")
+
+    # ✨ 修正: 在開始修改前，先建立一個明確的副本
+    df_filtered = df.copy()
 
     # 過濾面積過小的 Bbox
     MIN_AREA = 500
-    df["area"] = df["bb_width"] * df["bb_height"]
-    df = df[df["area"] > MIN_AREA]
+    df_filtered["area"] = df_filtered["bb_width"] * df_filtered["bb_height"]
+    df_filtered = df_filtered[df_filtered["area"] > MIN_AREA]
 
     # 過濾長寬比畸形的 Bbox
     MAX_ASPECT_RATIO = 6.0
-    df["aspect_ratio"] = df["bb_width"] / (df["bb_height"] + 1e-6)
-    df = df[(df["aspect_ratio"] < MAX_ASPECT_RATIO) & (df["aspect_ratio"] > 1 / MAX_ASPECT_RATIO)]
+    df_filtered["aspect_ratio"] = df_filtered["bb_width"] / (df_filtered["bb_height"] + 1e-6)
+    df_filtered = df_filtered[
+        (df_filtered["aspect_ratio"] < MAX_ASPECT_RATIO) & (df_filtered["aspect_ratio"] > 1 / MAX_ASPECT_RATIO)
+    ]
 
     # 移除輔助欄位
-    df = df.drop(columns=["area", "aspect_ratio"])
-    print(f"過濾後的標註數量: {len(df)}")
-    return df
+    df_filtered = df_filtered.drop(columns=["area", "aspect_ratio"])
+    print(f"過濾後的標註數量: {len(df_filtered)}")
+    return df_filtered
 
 
 def main():

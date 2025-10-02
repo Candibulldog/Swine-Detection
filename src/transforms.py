@@ -58,7 +58,7 @@ def get_transform(train: bool) -> AlbumentationsTransform:
         # 在基礎轉換前，加入訓練模式獨有的隨機增強
         train_transforms = [
             # ✨ 技巧: 隨機安全裁切，強迫模型學習局部特徵
-            A.RandomBBoxSafeCrop(p=0.3),
+            A.RandomSizedBBoxSafeCrop(height=IMG_SIZE, width=IMG_SIZE, p=0.3),
             A.HorizontalFlip(p=0.5),
             # 整合的顏色抖動
             A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.7),
