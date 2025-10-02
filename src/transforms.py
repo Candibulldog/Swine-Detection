@@ -75,6 +75,8 @@ def get_transform(train: bool) -> AlbumentationsTransform:
             # ✨ 技巧: 隨機安全裁切，強迫模型學習局部特徵
             A.RandomSizedBBoxSafeCrop(height=IMG_SIZE, width=IMG_SIZE, p=0.3),
             A.HorizontalFlip(p=0.5),
+            # 在圖片上隨機挖掉幾個小黑塊，強迫模型學習被遮擋的物體
+            A.CoarseDropout(max_holes=8, max_height=40, max_width=40, fill_value=0, p=0.5),
             # 整合的顏色抖動
             A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.7),
             A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.1, rotate_limit=15, p=0.5),
