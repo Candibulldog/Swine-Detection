@@ -136,7 +136,7 @@ def convert_to_coco_api(ds):
     for img_idx in range(len(ds)):
         img, targets = ds[img_idx]
 
-        # --- !! 終極修正 !! ---
+        # --- fix ---
         # 確保 image_id 是一個純粹的 Python int，而不是一個 Tensor
         image_id = targets["image_id"].item()
         # ---------------------
