@@ -18,7 +18,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
     model.train()
 
     # 用於混合精度訓練的 GradScaler
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler("cuda")
 
     # 用於記錄和平均各項損失
     loss_accumulator = defaultdict(float)
@@ -30,7 +30,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
         # 使用 autocast 上下文管理器進行混合精度前向傳播
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             loss_dict = model(images, targets)
             total_loss = sum(loss for loss in loss_dict.values())
 
@@ -86,7 +86,7 @@ def evaluate(model, data_loader, device):
         images = [img.to(device) for img in images]
 
         # 在評估時也使用 autocast，可以加速推論
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             outputs = model(images)
 
         outputs_cpu = [{k: v.to("cpu") for k, v in t.items()} for t in outputs]
