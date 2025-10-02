@@ -3,12 +3,9 @@ import argparse
 import csv
 import os
 import random
-import sys
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
@@ -70,7 +67,9 @@ def main():
 
     full_annotations = pd.read_csv(gt_path, header=None, names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"])
 
-    print("--- 開始數據探索 (伺服器模式) ---")
+    # data analysis code (optional)
+    """
+    print("--- 開始數據探索 ---")
 
     # 確保輸出目錄存在
     output_dir = "data_analysis"  # 你可以自訂資料夾名稱
@@ -116,30 +115,31 @@ def main():
 
     print("\n--- 數據探索完成，程式即將退出 ---")
     sys.exit()  # 分析完畢，退出程式
+    """
 
     # =================================================================
-    # ✨✨✨ 資料預過濾 (Data Pre-filtering) 步驟 ✨✨✨
+    # ✨✨✨ Data cleaning ✨✨✨
     # =================================================================
     print(f"原始標註數量: {len(full_annotations)}")
 
-    # 1. 過濾掉尺寸過小或無效的 Bbox
-    #    (寬或高小於 5 pixels 的通常是標註錯誤或無意義的碎片)
-    MIN_BOX_SIZE = 5
-    full_annotations = full_annotations[
-        (full_annotations["bb_width"] > MIN_BOX_SIZE) & (full_annotations["bb_height"] > MIN_BOX_SIZE)
-    ]
-    print(f"過濾掉過小 Bbox 後的數量: {len(full_annotations)}")
+    # 1. 根據面積統計數據，過濾掉面積小於 500 的 Bbox
+    MIN_AREA = 500
+    full_annotations["area"] = full_annotations["bb_width"] * full_annotations["bb_height"]
+    full_annotations = full_annotations[full_annotations["area"] > MIN_AREA]
+    print(f"過濾掉面積過小 Bbox 後的數量: {len(full_annotations)}")
 
-    # 2. 過濾掉長寬比極不合理的 Bbox
-    #    (例如一個框 5x200 pixels，很可能不是一隻豬)
-    #    你可以根據對資料的觀察來調整這個比例
-    MAX_ASPECT_RATIO = 8.0
-    aspect_ratio = full_annotations["bb_width"] / full_annotations["bb_height"]
-    full_annotations = full_annotations[(aspect_ratio < MAX_ASPECT_RATIO) & (aspect_ratio > 1 / MAX_ASPECT_RATIO)]
+    # 2. 根據長寬比統計數據，過濾掉形狀畸形的 Bbox
+    MAX_ASPECT_RATIO = 6.0
+    full_annotations["aspect_ratio"] = full_annotations["bb_width"] / (full_annotations["bb_height"] + 1e-6)
+    full_annotations = full_annotations[
+        (full_annotations["aspect_ratio"] < MAX_ASPECT_RATIO)
+        & (full_annotations["aspect_ratio"] > 1 / MAX_ASPECT_RATIO)
+    ]
     print(f"過濾掉畸形 Bbox 後的數量: {len(full_annotations)}")
 
-    # 最終我們用 `full_annotations` 這個清洗過的 DataFrame 進行後續操作
-    # =================================================================
+    # 移除輔助欄位，保持 DataFrame 乾淨
+    full_annotations = full_annotations.drop(columns=["area", "aspect_ratio"])
+    # ==================================================================
 
     # ✅ 更穩健的檔名解析（只收純數字檔名，如 00000001.jpg）
     existing_files = set()
