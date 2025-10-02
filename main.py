@@ -9,7 +9,7 @@ import sys
 USER_DEFAULTS = {
     "epochs": 1,
     "batch_size": 4,
-    "learning_rate": 0.005,
+    "lr": 0.005,
     "conf_threshold": 0.5,
     # None 代表自動偵測：Colab -> /content/data；否則 ./data
     "data_root": None,
@@ -29,7 +29,7 @@ def parse_args():
     # 所有參數 default=None，實際值用 USER_DEFAULTS 合併
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--batch_size", type=int, default=None)
-    p.add_argument("--learning_rate", type=float, default=None)
+    p.add_argument("--lr", type=float, default=None)
     p.add_argument("--conf_threshold", type=float, default=None)
     p.add_argument("--data_root", type=str, default=None)
     p.add_argument("--output_dir", type=str, default=None)
