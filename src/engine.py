@@ -1,100 +1,99 @@
 # src/engine.py
 
+import math
+from collections import defaultdict
 
 import torch
-from tqdm import tqdm  # 一個好用的進度條工具
+from tqdm import tqdm
 
-# 為了計算 mAP，我們需要從 torchvision 引入評估工具
-# 如果你沒有安裝 pycocotools，Colab 會提示你安裝：!pip install pycocotools
+# 引入 COCO 評估工具
 from .coco_eval import CocoEvaluator
 from .coco_utils import get_coco_api_from_dataset
 
 
 def train_one_epoch(model, optimizer, data_loader, device, epoch):
     """
-    在一個 epoch 上訓練模型。
-
-    Args:
-        model (torch.nn.Module): 要訓練的模型。
-        optimizer (torch.optim.Optimizer): 優化器。
-        data_loader (torch.utils.data.DataLoader): 訓練資料的 DataLoader。
-        device (torch.device): 訓練設備 (CPU 或 GPU)。
-        epoch (int): 當前的 epoch 編號。
+    在一個 epoch 上訓練模型，包含混合精度訓練和梯度裁剪。
     """
-    model.train()  # 將模型設置為訓練模式
+    model.train()
 
-    # 使用 tqdm 建立一個進度條
-    progress_bar = tqdm(data_loader, desc=f"Epoch {epoch + 1}")
+    # 用於混合精度訓練的 GradScaler
+    scaler = torch.cuda.amp.GradScaler()
 
-    for images, targets in progress_bar:
-        # 1. 將圖片和標註移動到指定的 device
-        images = list(image.to(device) for image in images)
+    # 用於記錄和平均各項損失
+    loss_accumulator = defaultdict(float)
+
+    progress_bar = tqdm(data_loader, desc=f"Epoch {epoch + 1} [Training]")
+
+    for i, (images, targets) in enumerate(progress_bar):
+        images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        # 2. 前向傳播 (Forward pass)
-        #    在訓練模式下，模型會直接回傳一個包含所有損失的字典
-        #    例如: {'loss_classifier': tensor, 'loss_box_reg': tensor, ...}
-        loss_dict = model(images, targets)
+        # 使用 autocast 上下文管理器進行混合精度前向傳播
+        with torch.cuda.amp.autocast():
+            loss_dict = model(images, targets)
+            total_loss = sum(loss for loss in loss_dict.values())
 
-        # 3. 計算總損失
-        #    我們將所有回傳的損失加總
-        losses = sum(loss for loss in loss_dict.values())
+        # 檢查 loss 是否有效，防止 NaN 導致訓練崩潰
+        if not math.isfinite(total_loss.item()):
+            print(f"!!! Loss is {total_loss.item()}, stopping training at iteration {i} to prevent model corruption.")
+            # 在這裡可以選擇退出或跳過這個 batch
+            continue
 
-        # 4. 反向傳播 (Backward pass)
-        optimizer.zero_grad()  # 清除舊的梯度
-        losses.backward()  # 計算梯度
-        optimizer.step()  # 更新模型權重
+        # 反向傳播
+        optimizer.zero_grad()
+        # scaler.scale 會將損失乘以一個縮放因子，防止梯度下溢
+        scaler.scale(total_loss).backward()
 
-        # 5. (可選) 在進度條上顯示當前的總損失
-        progress_bar.set_postfix(loss=losses.item())
+        # 可選：梯度裁剪，防止梯度爆炸
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-    print(f"Epoch {epoch + 1} training finished. Total Loss: {losses.item():.4f}")
+        # scaler.step 會自動 unscale 梯度，然後調用 optimizer.step()
+        scaler.step(optimizer)
+        # 更新縮放因子
+        scaler.update()
+
+        # 記錄損失
+        for k, v in loss_dict.items():
+            loss_accumulator[k] += v.item()
+        loss_accumulator["total_loss"] += total_loss.item()
+
+        # 更新進度條顯示
+        avg_loss = loss_accumulator["total_loss"] / (i + 1)
+        progress_bar.set_postfix(loss=f"{avg_loss:.4f}")
+
+    # 打印 epoch 的平均損失
+    num_batches = len(data_loader)
+    print(f"Epoch {epoch + 1} training finished. Average losses:")
+    for k, v in loss_accumulator.items():
+        print(f"  - {k}: {v / num_batches:.4f}")
 
 
-@torch.no_grad()  # 在這個函式中，我們不需要計算梯度
+@torch.no_grad()
 def evaluate(model, data_loader, device):
     """
     在驗證集上評估模型。
-
-    Args:
-        model (torch.nn.Module): 要評估的模型。
-        data_loader (torch.utils.data.DataLoader): 驗證資料的 DataLoader。
-        device (torch.device): 評估設備 (CPU 或 GPU)。
-
-    Returns:
-        coco_evaluator object: 包含所有評估結果的物件。
     """
-    model.eval()  # 將模型設置為評估模式
+    model.eval()
 
-    # 建立 CocoEvaluator 物件，這是 TorchVision 官方推薦的評估工具
-    # 它可以處理 AP, AP50, AP75 等多種指標的計算
     coco = get_coco_api_from_dataset(data_loader.dataset)
     iou_types = ["bbox"]
     coco_evaluator = CocoEvaluator(coco, iou_types)
 
-    print("\nEvaluating...")
     progress_bar = tqdm(data_loader, desc="Validation")
 
     for images, targets in progress_bar:
-        # 1. 將圖片移動到指定的 device
-        images = list(img.to(device) for img in images)
+        images = [img.to(device) for img in images]
 
-        # 2. 進行預測
-        #    在評估模式下，模型會回傳每個圖片的預測結果
-        #    格式: [{'boxes': tensor, 'labels': tensor, 'scores': tensor}, ...]
-        outputs = model(images)
+        # 在評估時也使用 autocast，可以加速推論
+        with torch.cuda.amp.autocast():
+            outputs = model(images)
 
-        # 3. 讓 outputs 字典裡的值保持為 PyTorch Tensor 即可
-        outputs = [{k: v.to(torch.device("cpu")) for k, v in t.items()} for t in outputs]
-        # 4. 格式化 targets 以符合評估器要求
-        #    評估器需要 targets 包含一個 'image_id' 鍵
-        res = {target["image_id"].item(): output for target, output in zip(targets, outputs)}
+        outputs_cpu = [{k: v.to("cpu") for k, v in t.items()} for t in outputs]
+        res = {target["image_id"].item(): output for target, output in zip(targets, outputs_cpu)}
 
-        # 5. 將這一批次的預測結果餵給評估器
         coco_evaluator.update(res)
 
-    # 累積所有批次的結果並進行最終計算
     coco_evaluator.accumulate()
-    coco_evaluator.summarize()  # 這一步會在 console 印出 mAP_50:95 等結果
-
+    coco_evaluator.summarize()
     return coco_evaluator
