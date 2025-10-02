@@ -86,7 +86,7 @@ def main():
     # =========================
     model = create_model(num_classes=NUM_CLASSES)
     # map_location 確保在 CPU 也能載入 GPU 存的權重
-    state = torch.load(args.model_path, map_location="cpu")
+    state = torch.load(args.model_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
     model.to(DEVICE)
     model.eval()
