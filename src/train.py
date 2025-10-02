@@ -4,9 +4,11 @@ import argparse
 import csv
 import os
 import random
-
+import numpy as np
 import pandas as pd
 import torch
+
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 # 從 src 資料夾中引入我們寫好的模組
@@ -14,134 +16,160 @@ from src.dataset import PigDataset
 from src.engine import evaluate, train_one_epoch
 from src.model import create_model
 from src.transforms import get_transform
-from src.utils import collate_fn
+from src.utils import collate_fn  # ✅ 直接匯入函式本體
 
-# ==================================
-# 1. 超參數設定 (Hyperparameters)
-# ==================================
+# --- 全域常數 ---
 DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 NUM_CLASSES = 2  # 1 (pig) + 1 (background)
-DATA_ROOT = "/content/data"  # 在 Colab 中的資料路徑
+
+
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def seed_worker(_):
+    # 讓 DataLoader workers 的亂數可重現
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
 def main():
-    # --- 建立參數解析器 ---
+    # --- 1. 設定與解析命令行參數 ---
     parser = argparse.ArgumentParser(description="Pig Detection Training Script")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
+    default_dr = "/content/data" if os.path.exists("/content/data") else "./data"
+    parser.add_argument("--data_root", type=str, default=default_dr,
+                        help="Root path that contains train/ and test/")
+    parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training")
-    parser.add_argument("--lr", type=float, default=0.005, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=0.005, help="Initial learning rate")
     parser.add_argument("--output_dir", type=str, default="models", help="Directory to save the best model")
+    parser.add_argument("--seed", type=int, default=42)
+
     args = parser.parse_args()
+    set_seed(args.seed)
 
-    # --- 使用解析出來的參數 ---
-    NUM_EPOCHS = args.epochs
-    BATCH_SIZE = args.batch_size
-    LEARNING_RATE = args.lr
-    MODEL_DIR = args.output_dir
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
+    print(f"DEVICE is set to: {DEVICE}")
+    print(f"訓練參數: Epochs={args.epochs}, Batch Size={args.batch_size}, LR={args.lr}")
 
-    # ==================================
-    # 2. 準備資料 (Dataset & DataLoader)
-    # ==================================
-    # 1. 獲取所有有效的 Frame ID
-    #    這段邏輯只執行一次，確保我們只使用有圖片且有標註的資料
+    # --- 2. 準備資料 ---
+    DATA_ROOT = args.data_root
     gt_path = os.path.join(DATA_ROOT, "train", "gt.txt")
     img_dir = os.path.join(DATA_ROOT, "train", "img")
 
-    full_annotations = pd.read_csv(gt_path, header=None, names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"])
-    existing_files = {int(f.split(".")[0]) for f in os.listdir(img_dir)}
-    annotated_frames = set(full_annotations["frame"].unique())
+    if not os.path.isfile(gt_path):
+        raise FileNotFoundError(f"找不到標註檔：{gt_path}")
+    if not os.path.isdir(img_dir):
+        raise NotADirectoryError(f"找不到影像資料夾：{img_dir}")
 
-    valid_frames = sorted(list(existing_files.intersection(annotated_frames)))
-    random.shuffle(valid_frames)
+    full_annotations = pd.read_csv(
+        gt_path, header=None,
+        names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
+    )
 
-    # 2. 切分 Frame ID 列表
+    # ✅ 更穩健的檔名解析（只收純數字檔名，如 00000001.jpg）
+    existing_files = set()
+    for f in os.listdir(img_dir):
+        stem, _ = os.path.splitext(f)
+        if stem.isdigit():
+            existing_files.add(int(stem))
+
+    annotated_frames = set(map(int, full_annotations["frame"].unique()))
+    valid_frames = sorted(existing_files.intersection(annotated_frames))
+
+    if len(valid_frames) < 2:
+        raise RuntimeError("可用影像不足以切分 train/val，請檢查資料完整性。")
+
+    # 固定隨機種子後再 shuffle，確保可重現
+    rng = random.Random(args.seed)
+    rng.shuffle(valid_frames)
+
     split_point = int(0.8 * len(valid_frames))
+    # 至少留 1 張給驗證（以免 100%/0% 邊界）
+    split_point = min(max(1, split_point), len(valid_frames) - 1)
+
     train_frames = valid_frames[:split_point]
     val_frames = valid_frames[split_point:]
 
-    # 3. 用切分好的 Frame ID 列表來初始化兩個【完全獨立】的 Dataset
-    #    不再使用 Subset 或 random_split！
     train_dataset = PigDataset(
         root_dir=DATA_ROOT,
         frame_ids=train_frames,
-        is_train=True,
-        transforms=get_transform(train=True),
+        is_train=True,                      # 需要標註
+        transforms=get_transform(train=True)
     )
-
     val_dataset = PigDataset(
         root_dir=DATA_ROOT,
         frame_ids=val_frames,
-        is_train=True,
-        transforms=get_transform(train=False),
+        is_train=True,                      # 驗證集仍取自 train，有標註 → True
+        transforms=get_transform(train=False)  # 驗證禁用隨機增強
     )
 
-    # 建立 DataLoader (這部分不變)
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        collate_fn=collate_fn,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        collate_fn=collate_fn,
-    )
+    # --- DataLoader（快又穩） ---
+    cpu_cnt = os.cpu_count() or 2
+    num_workers = max(1, cpu_cnt - 1)  # 至少 1，Colab/雲端通常這樣最穩
+    g = torch.Generator()
+    g.manual_seed(args.seed)
 
-    print(f"訓練集大小: {len(train_dataset)}")
-    print(f"驗證集大小: {len(val_dataset)}")
+    dl_kwargs = dict(
+        num_workers=num_workers,
+        pin_memory=True,
+        collate_fn=collate_fn,          # ✅ 使用匯入的函式，不要寫 utils.collate_fn
+        worker_init_fn=seed_worker,
+        generator=g,
+    )
+    if num_workers > 0:
+        dl_kwargs["persistent_workers"] = True
+        dl_kwargs["prefetch_factor"] = 2
 
-    # ==================================
-    # 3. 建立模型和優化器
-    # ==================================
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,  **dl_kwargs)
+    val_loader   = DataLoader(val_dataset,   batch_size=args.batch_size, shuffle=False, **dl_kwargs)
+
+    print(f"訓練集大小: {len(train_dataset)}, 驗證集大小: {len(val_dataset)}")
+
+    # --- 3. 建立模型、優化器與學習率排程器 ---
     model = create_model(NUM_CLASSES)
     model.to(DEVICE)
 
-    # 設定優化器 (SGD 是一個穩健的選擇)
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr=LEARNING_RATE, momentum=0.9, weight_decay=0.0005)
+    optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9, weight_decay=0.0005)
 
-    print("\n--- 檢查設備 ---")
-    print(f"DEVICE is set to: {DEVICE}")
+    # 使用 CosineAnnealingLR 讓學習率平滑下降
+    lr_scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=0)
 
-    # ==================================
-    # 4. 訓練迴圈 (Training Loop)
-    # ==================================
-    best_map = 0.0  # 用來記錄目前最好的 mAP 分數
-    log_file_path = "training_log.csv"  # <-- 改成 .csv
+    # --- 4. 訓練與驗證迴圈 ---
+    best_map = -1.0
+    best_path = os.path.join(args.output_dir, "best_model.pth")
+    log_file_path = os.path.join(args.output_dir, "training_log.csv")  # ✅ 日誌放在 output_dir
 
-    # 在訓練開始前，用 csv 模組寫入表頭
     with open(log_file_path, mode="w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["Epoch", "mAP_50:95", "AP_50"])
 
     print("\n--- 開始訓練 ---")
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(args.epochs):
         train_one_epoch(model, optimizer, train_loader, DEVICE, epoch)
+        lr_scheduler.step()
 
-        # 呼叫 evaluate 並獲取評估結果
         coco_evaluator = evaluate(model, val_loader, DEVICE)
+        current_map = coco_evaluator.coco_eval["bbox"].stats[0]   # mAP_50:95
+        current_ap50 = coco_evaluator.coco_eval["bbox"].stats[1]  # AP_50
 
-        # 從評估結果中提取 mAP_50:95 的分數 (它在 stats[0])
-        current_map = coco_evaluator.coco_eval["bbox"].stats[0]
-        current_ap50 = coco_evaluator.coco_eval["bbox"].stats[1]
-
-        # wirte to CSV log file
         with open(log_file_path, mode="a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([epoch + 1, f"{current_map:.4f}", f"{current_ap50:.4f}"])
 
-        # 檢查是否是目前最好的模型
         if current_map > best_map:
             best_map = current_map
-            model_save_path = os.path.join(MODEL_DIR, "best_model.pth")
-            torch.save(model.state_dict(), model_save_path)
-            print(f"🎉 New best model saved with mAP: {best_map:.4f} at epoch {epoch + 1}")
+            torch.save(model.state_dict(), best_path)
+            print(f"🎉 New best model saved to {best_path} with mAP: {best_map:.4f} at epoch {epoch + 1}")
 
     print("\n--- 訓練完成 ---")
-    print(f"整個訓練過程中最好的 mAP 分數是: {best_map:.4f}")
+    print(f"整個訓練過程中最好的 mAP 分數是: {best_map:.4f}, 對應模型已儲存至 {best_path}")
 
 
 if __name__ == "__main__":
