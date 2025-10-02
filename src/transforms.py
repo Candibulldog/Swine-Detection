@@ -24,26 +24,31 @@ class AlbumentationsCompose:
         )
 
     def __call__(self, image, target):
-        # 1. 轉換資料格式以符合 Albumentations 的輸入要求
-        #    image: PIL Image -> NumPy array
-        #    boxes: PyTorch Tensor -> list of lists
-        #    labels: PyTorch Tensor -> list
-        transformed = self.transforms(
-            image=np.array(image), bboxes=target["boxes"].tolist(), labels=target["labels"].tolist()
-        )
+        # --- !! 關鍵修正 !! ---
+        # 判斷 target 字典中是否存在 'boxes' 鍵，來區分訓練/驗證模式和純測試模式
+        if "boxes" in target and "labels" in target:
+            # 這是訓練或驗證模式，target 包含標註
+            transformed = self.transforms(
+                image=np.array(image), bboxes=target["boxes"].tolist(), labels=target["labels"].tolist()
+            )
 
-        # 2. 將轉換後的資料轉回我們的 target 字典格式
-        #    注意：ToTensorV2() 會自動將 image 轉為 PyTorch Tensor
-        image = transformed["image"]
+            # 將轉換後的資料轉回我們的 target 字典格式
+            image = transformed["image"]
 
-        # 處理邊界情況：如果所有 bounding box 都被裁切掉了
-        if len(transformed["bboxes"]) > 0:
-            target["boxes"] = torch.as_tensor(transformed["bboxes"], dtype=torch.float32)
+            if len(transformed["bboxes"]) > 0:
+                target["boxes"] = torch.as_tensor(transformed["bboxes"], dtype=torch.float32)
+            else:
+                target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
+
+            target["labels"] = torch.as_tensor(transformed["labels"], dtype=torch.int64)
+
         else:
-            target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
-
-        # 標籤也要更新
-        target["labels"] = torch.as_tensor(transformed["labels"], dtype=torch.int64)
+            # 這是純測試模式，target 只有 image_id，沒有標註
+            # 我們只需要對 image 進行轉換
+            # 注意：這裡不能傳入 bboxes 和 labels 參數
+            transformed = self.transforms(image=np.array(image))
+            image = transformed["image"]
+            # target 保持不變 (只包含 image_id)
 
         return image, target
 
