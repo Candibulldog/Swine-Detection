@@ -7,7 +7,7 @@ import sys
 
 # ==== User config ====
 USER_DEFAULTS = {
-    "epochs": 1,
+    "epochs": 30,
     "batch_size": 4,
     "lr": 0.005,
     "conf_threshold": 0.5,
