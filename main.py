@@ -1,102 +1,115 @@
 # main.py
 
 import argparse
-import os
 import subprocess
 import sys
+from pathlib import Path
 
-# ==== User config ====
+# ===================================================================
+# ✨ Execute configuration ✨
+# ===================================================================
 USER_DEFAULTS = {
-    "epochs": 48,
-    "batch_size": 4,
-    "lr": 0.001,
-    "conf_threshold": 0.5,
-    # None 代表自動偵測：Colab -> /content/data；否則 ./data
-    "data_root": None,
-    "output_dir": "models",
-    "best_model_path": "models/best_model.pth",
-    "submission_path": "submission.csv",
+    "epochs": 60,  # 給予充分的訓練和微調時間
+    "batch_size": 8,  # 可根據 VRAM 調整
+    "lr": 0.001,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
+    "seed": 42,  # 確保實驗的可重現性
+    "conf_threshold": 0.5,  # 預測時的信心度閾值，可後續調整
+    # --- 路徑設定 ---
+    "data_root": Path("./data"),
+    "output_dir": Path("./models"),
+    "submission_path": Path("submission.csv"),
 }
-# =========================================
+# ===================================================================
 
 
-def run(cmd_list):
-    subprocess.run(cmd_list, check=True)
+def strtobool(val):
+    """convert string to boolean (for argparse)."""
+    val = val.lower()
+    if val in ("y", "yes", "t", "true", "on", "1"):
+        return True
+    elif val in ("n", "no", "f", "false", "off", "0"):
+        return False
+    else:
+        raise argparse.ArgumentTypeError(f"Boolean value expected, got '{val}'")
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description="CVPDL HW1 minimal runner")
-    # 所有參數 default=None，實際值用 USER_DEFAULTS 合併
-    p.add_argument("--epochs", type=int, default=None)
-    p.add_argument("--batch_size", type=int, default=None)
-    p.add_argument("--lr", type=float, default=None)
-    p.add_argument("--conf_threshold", type=float, default=None)
-    p.add_argument("--data_root", type=str, default=None)
-    p.add_argument("--output_dir", type=str, default=None)
-    p.add_argument("--best_model_path", type=str, default=None)
-    p.add_argument("--submission_path", type=str, default=None)
-    return p.parse_args()
-
-
-def resolve_config(args):
-    cfg = dict(USER_DEFAULTS)
-    for k, v in vars(args).items():
-        if v is not None:
-            cfg[k] = v
-    # 自動偵測 data_root
-    if cfg["data_root"] is None:
-        cfg["data_root"] = "/content/data" if os.path.exists("/content") else "./data"
-    return cfg
+def run_command(cmd_list):
+    """execute a command in subprocess and handle errors."""
+    try:
+        subprocess.run(cmd_list, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"命令執行失敗，返回碼 {e.returncode}:\n{' '.join(map(str, e.cmd))}")
+        sys.exit(1)
 
 
 def main():
-    args = parse_args()
-    cfg = resolve_config(args)
+    parser = argparse.ArgumentParser(
+        description="CVPDL HW1 Runner: Train -> Predict", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    # 從 USER_DEFAULTS 自動生成命令行參數
+    for key, value in USER_DEFAULTS.items():
+        arg_type = type(value) if not isinstance(value, bool) else lambda x: bool(strtobool(x))
+        parser.add_argument(f"--{key}", type=arg_type, default=value, help=f"Override default {key}")
 
-    # 顯示本次生效設定（方便對照）
-    print("🚀 CVPDL HW1 | Train → Predict")
-    print("有效設定：", {k: cfg[k] for k in sorted(cfg)})
+    args = parser.parse_args()
 
-    # 1) 訓練
-    print("\n[1/2] 訓練中…")
+    # 建立模型輸出路徑
+    args.output_dir.mkdir(exist_ok=True)
+
+    # best_model_path 是基於 output_dir 的，動態生成
+    best_model_path = args.output_dir / "best_model.pth"
+
+    print("🚀 CVPDL HW1 | 訓練並預測")
+    print("-" * 50)
+    print("當前配置:")
+    for key, value in vars(args).items():
+        print(f"  - {key}: {value}")
+    print("-" * 50)
+
+    # --- 1. 訓練 ---
+    print("\n[1/2] 🚀 開始訓練...")
     train_cmd = [
         sys.executable,
         "-m",
         "src.train",
         "--data_root",
-        cfg["data_root"],
+        args.data_root,
         "--epochs",
-        str(cfg["epochs"]),
+        args.epochs,
         "--batch_size",
-        str(cfg["batch_size"]),
+        args.batch_size,
         "--lr",
-        str(cfg["lr"]),
+        args.lr,
         "--output_dir",
-        cfg["output_dir"],
+        args.output_dir,
+        "--seed",
+        args.seed,
     ]
-    run(train_cmd)
+    run_command(map(str, train_cmd))
     print("✅ 訓練完成。")
 
-    # 2) 推論
-    print("\n[2/2] 推論中…")
-    if not os.path.isfile(cfg["best_model_path"]):
-        raise FileNotFoundError(f"找不到最佳模型：{cfg['best_model_path']}（請確認訓練是否成功存檔）")
+    # --- 2. 推論 ---
+    print("\n[2/2] 🔍 開始推論...")
+    if not best_model_path.is_file():
+        raise FileNotFoundError(f"找不到最佳模型: {best_model_path} (請確認訓練是否成功存檔)")
 
     predict_cmd = [
         sys.executable,
         "-m",
         "src.predict",
         "--data_root",
-        cfg["data_root"],
+        args.data_root,
         "--model_path",
-        cfg["best_model_path"],
+        best_model_path,
         "--conf_threshold",
-        str(cfg["conf_threshold"]),
+        args.conf_threshold,
         "--output_path",
-        cfg["submission_path"],
+        args.submission_path,
+        "--seed",
+        args.seed,
     ]
-    run(predict_cmd)
-    print(f"✅ 推論完成 → {cfg['submission_path']}")
+    run_command(map(str, predict_cmd))
+    print(f"\n🎉 全部完成！提交檔案已儲存至 {args.submission_path}")
 
 
 if __name__ == "__main__":
