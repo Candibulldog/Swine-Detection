@@ -1,56 +1,85 @@
 # src/transforms.py
 
-import random
+import albumentations as A
+import numpy as np
+import torch
+from albumentations.pytorch import ToTensorV2
 
-import torchvision.transforms.functional as F
 
+class AlbumentationsCompose:
+    """
+    一個包裝類，讓 albumentations 的 transform pipeline
+    可以無縫地接收我們 Dataset 輸出的 (PIL Image, target_dict) 格式。
+    """
 
-# Compose 類保持不變
-class Compose:
     def __init__(self, transforms):
-        self.transforms = transforms
+        # Albumentations 的核心，定義了轉換流程
+        # 我們需要告訴它 bounding box 的格式以及如何處理標籤
+        self.transforms = A.Compose(
+            transforms,
+            bbox_params=A.BboxParams(
+                format="pascal_voc",  # [xmin, ymin, xmax, ymax], 這正是我們 Dataset 輸出的格式
+                label_fields=["labels"],
+            ),
+        )
 
     def __call__(self, image, target):
-        for t in self.transforms:
-            image, target = t(image, target)
-        return image, target
+        # 1. 轉換資料格式以符合 Albumentations 的輸入要求
+        #    image: PIL Image -> NumPy array
+        #    boxes: PyTorch Tensor -> list of lists
+        #    labels: PyTorch Tensor -> list
+        transformed = self.transforms(
+            image=np.array(image), bboxes=target["boxes"].tolist(), labels=target["labels"].tolist()
+        )
 
+        # 2. 將轉換後的資料轉回我們的 target 字典格式
+        #    注意：ToTensorV2() 會自動將 image 轉為 PyTorch Tensor
+        image = transformed["image"]
 
-# ToTensor 類保持不變
-class ToTensor:
-    def __call__(self, image, target):
-        # 將 PIL Image 轉換為 PyTorch Tensor
-        image = F.to_tensor(image)
-        return image, target
+        # 處理邊界情況：如果所有 bounding box 都被裁切掉了
+        if len(transformed["bboxes"]) > 0:
+            target["boxes"] = torch.as_tensor(transformed["bboxes"], dtype=torch.float32)
+        else:
+            target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
 
+        # 標籤也要更新
+        target["labels"] = torch.as_tensor(transformed["labels"], dtype=torch.int64)
 
-# RandomHorizontalFlip 類進行修正
-class RandomHorizontalFlip:
-    def __init__(self, prob):
-        self.prob = prob
-
-    def __call__(self, image, target):
-        if random.random() < self.prob:
-            # --- !! 關鍵修正 !! ---
-            # image 現在是一個 Tensor，形狀是 [C, H, W] (通道, 高, 寬)
-            # 我們用 image.shape[-1] 來獲取寬度，而不是 image.size
-            height, width = image.shape[-2:]
-
-            # F.hflip 可以同時處理 PIL Image 和 Tensor
-            image = F.hflip(image)
-
-            # 手動翻轉 bounding box 的邏輯保持不變
-            bbox = target["boxes"]
-            bbox[:, [0, 2]] = width - bbox[:, [2, 0]]
-            target["boxes"] = bbox
         return image, target
 
 
 def get_transform(train):
-    transforms = []
-    # 順序很重要：先做 Tensor 轉換
-    transforms.append(ToTensor())
+    """
+    根據是訓練模式還是驗證/測試模式，返回對應的資料增強 pipeline。
+    """
     if train:
-        # 然後再做其他基於 Tensor 的操作
-        transforms.append(RandomHorizontalFlip(0.5))
-    return Compose(transforms)
+        # --- 訓練模式下的增強策略 ---
+        # 目標：提升 Bbox 回歸的精準度
+        transform_list = [
+            # 顏色增強：讓模型對光照變化更不敏感
+            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+            A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5),
+            # 幾何增強：讓模型學習不同姿態、大小、角度的豬
+            A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.1, rotate_limit=15, p=0.7),
+            # 水平翻轉
+            A.HorizontalFlip(p=0.5),
+            # (可選) 隨機安全裁切，確保裁切後至少有一個 bbox 留下
+            # A.RandomBBoxSafeCrop(p=0.3),
+            # 將所有圖片 resize 到一個固定大小，有助於模型處理和批次化
+            # 這個尺寸可以根據你的 GPU 記憶體和模型特性來調整
+            A.Resize(640, 640),
+            # 標準化 (使用 ImageNet 的均值和標準差)
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            # 轉換為 PyTorch Tensor，這必須是最後一步！
+            ToTensorV2(),
+        ]
+        return AlbumentationsCompose(transform_list)
+    else:
+        # --- 驗證/測試模式下的轉換 ---
+        # 只需要做必要的尺寸調整、標準化和 Tensor 轉換，不做隨機增強
+        transform_list = [
+            A.Resize(640, 640),
+            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ToTensorV2(),
+        ]
+        return AlbumentationsCompose(transform_list)

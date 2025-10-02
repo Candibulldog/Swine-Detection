@@ -7,9 +7,9 @@ import sys
 
 # ==== User config ====
 USER_DEFAULTS = {
-    "epochs": 24,
+    "epochs": 48,
     "batch_size": 4,
-    "lr": 0.005,
+    "lr": 0.001,
     "conf_threshold": 0.5,
     # None 代表自動偵測：Colab -> /content/data；否則 ./data
     "data_root": None,
