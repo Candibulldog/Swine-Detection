@@ -68,6 +68,30 @@ def main():
 
     full_annotations = pd.read_csv(gt_path, header=None, names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"])
 
+    # =================================================================
+    # ✨✨✨ 資料預過濾 (Data Pre-filtering) 步驟 ✨✨✨
+    # =================================================================
+    print(f"原始標註數量: {len(full_annotations)}")
+
+    # 1. 過濾掉尺寸過小或無效的 Bbox
+    #    (寬或高小於 5 pixels 的通常是標註錯誤或無意義的碎片)
+    MIN_BOX_SIZE = 5
+    full_annotations = full_annotations[
+        (full_annotations["bb_width"] > MIN_BOX_SIZE) & (full_annotations["bb_height"] > MIN_BOX_SIZE)
+    ]
+    print(f"過濾掉過小 Bbox 後的數量: {len(full_annotations)}")
+
+    # 2. 過濾掉長寬比極不合理的 Bbox
+    #    (例如一個框 5x200 pixels，很可能不是一隻豬)
+    #    你可以根據對資料的觀察來調整這個比例
+    MAX_ASPECT_RATIO = 8.0
+    aspect_ratio = full_annotations["bb_width"] / full_annotations["bb_height"]
+    full_annotations = full_annotations[(aspect_ratio < MAX_ASPECT_RATIO) & (aspect_ratio > 1 / MAX_ASPECT_RATIO)]
+    print(f"過濾掉畸形 Bbox 後的數量: {len(full_annotations)}")
+
+    # 最終我們用 `full_annotations` 這個清洗過的 DataFrame 進行後續操作
+    # =================================================================
+
     # ✅ 更穩健的檔名解析（只收純數字檔名，如 00000001.jpg）
     existing_files = set()
     for f in os.listdir(img_dir):
