@@ -65,32 +65,39 @@ class PigDataset(Dataset):
 
         target = {"image_id": torch.tensor([frame_id], dtype=torch.int64)}
 
+        # 預設 target 為空，以處理沒有標註的情況
+        boxes = torch.empty((0, 4), dtype=torch.float32)
+        labels = torch.empty((0,), dtype=torch.int64)
+        areas = torch.empty((0,), dtype=torch.float32)
+        iscrowd = torch.empty((0,), dtype=torch.int64)
+
         if self.is_train and frame_id in self.annotations_map:
-            # 從預先處理好的 map 中高效獲取標註
             records = self.annotations_map[frame_id]
 
-            # 使用向量化操作，快速計算 boxes 和 areas
-            x1 = records[:, 0]
-            y1 = records[:, 1]
-            w = records[:, 2]
-            h = records[:, 3]
-            x2 = x1 + w
-            y2 = y1 + h
+            # ✨ --- 關鍵修正：在處理前過濾掉無效的 Bbox --- ✨
+            # 確保寬度和高度都是嚴格的正數
+            valid_indices = (records[:, 2] > 0) & (records[:, 3] > 0)
+            records = records[valid_indices]
 
-            boxes = torch.as_tensor(np.stack([x1, y1, x2, y2], axis=1), dtype=torch.float32)
-            areas = torch.as_tensor(w * h, dtype=torch.float32)
+            if records.shape[0] > 0:
+                # 使用向量化操作，快速計算 boxes 和 areas
+                x1 = records[:, 0]
+                y1 = records[:, 1]
+                w = records[:, 2]
+                h = records[:, 3]
+                x2 = x1 + w
+                y2 = y1 + h
 
-            num_boxes = boxes.shape[0]
-            target["boxes"] = boxes
-            target["labels"] = torch.ones((num_boxes,), dtype=torch.int64)  # Class 1 for 'pig'
-            target["area"] = areas
-            target["iscrowd"] = torch.zeros((num_boxes,), dtype=torch.int64)
-        elif self.is_train:
-            # 處理那些在 train_frames 中但可能沒有任何有效標註的圖片
-            target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
-            target["labels"] = torch.empty((0,), dtype=torch.int64)
-            target["area"] = torch.empty((0,), dtype=torch.float32)
-            target["iscrowd"] = torch.empty((0,), dtype=torch.int64)
+                boxes = torch.as_tensor(np.stack([x1, y1, x2, y2], axis=1), dtype=torch.float32)
+                areas = torch.as_tensor(w * h, dtype=torch.float32)
+                num_boxes = boxes.shape[0]
+                labels = torch.ones((num_boxes,), dtype=torch.int64)
+                iscrowd = torch.zeros((num_boxes,), dtype=torch.int64)
+
+        target["boxes"] = boxes
+        target["labels"] = labels
+        target["area"] = areas
+        target["iscrowd"] = iscrowd
 
         if self.transforms:
             image, target = self.transforms(image, target)
