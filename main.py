@@ -1,67 +1,102 @@
 # main.py
 
+import argparse
 import os
 import subprocess
 import sys
 
-# --- 全域設定 ---
-NUM_EPOCHS = 30
-BATCH_SIZE = 4
-LEARNING_RATE = 0.005
-CONF_THRESHOLD = 0.5
+# ==== User config ====
+USER_DEFAULTS = {
+    "epochs": 30,
+    "batch_size": 4,
+    "learning_rate": 0.005,
+    "conf_threshold": 0.5,
+    # None 代表自動偵測：Colab -> /content/data；否則 ./data
+    "data_root": None,
+    "output_dir": "models",
+    "best_model_path": "models/best_model.pth",
+    "submission_path": "submission.csv",
+}
+# =========================================
 
 
-def run_command(command):
-    """執行 shell 指令，如果出錯則終止程式。"""
-    print(f"--- 執行指令: {command} ---")
-    try:
-        if command.startswith("pip"):
-            command = f"{sys.executable} -m {command}"
+def run(cmd_list):
+    subprocess.run(cmd_list, check=True)
 
-        # check=True 會在指令失敗時自動拋出異常
-        subprocess.run(command, check=True, shell=True, text=True)
 
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ 指令 '{e.cmd}' 執行失敗，返回碼: {e.returncode}")
-        sys.exit(1)
+def parse_args():
+    p = argparse.ArgumentParser(description="CVPDL HW1 minimal runner")
+    # 所有參數 default=None，實際值用 USER_DEFAULTS 合併
+    p.add_argument("--epochs", type=int, default=None)
+    p.add_argument("--batch_size", type=int, default=None)
+    p.add_argument("--learning_rate", type=float, default=None)
+    p.add_argument("--conf_threshold", type=float, default=None)
+    p.add_argument("--data_root", type=str, default=None)
+    p.add_argument("--output_dir", type=str, default=None)
+    p.add_argument("--best_model_path", type=str, default=None)
+    p.add_argument("--submission_path", type=str, default=None)
+    return p.parse_args()
+
+
+def resolve_config(args):
+    cfg = dict(USER_DEFAULTS)
+    for k, v in vars(args).items():
+        if v is not None:
+            cfg[k] = v
+    # 自動偵測 data_root
+    if cfg["data_root"] is None:
+        cfg["data_root"] = "/content/data" if os.path.exists("/content") else "./data"
+    return cfg
 
 
 def main():
-    print("🚀 ========== 開始執行 CVPDL HW1 完整流程 ========== 🚀")
+    args = parse_args()
+    cfg = resolve_config(args)
 
-    # --- 步驟 1: 環境設定 ---
-    print("\n[步驟 1/4] 正在安裝所需套件...")
-    run_command("pip install pandas opencv-python tqdm pycocotools -q")
-    print("✅ 套件安裝完成。")
+    # 顯示本次生效設定（方便對照）
+    print("🚀 CVPDL HW1 | Train → Predict")
+    print("有效設定：", {k: cfg[k] for k in sorted(cfg)})
 
-    # --- 步驟 2: 資料準備 ---
-    print("\n[步驟 2/4] 正在準備資料集...")
-    if not os.path.exists("/content/data"):
-        run_command("kaggle competitions download -c ntu-cvpdl-2025-hw-1 -p /content/")
-        run_command("mkdir -p /content/data")
-        run_command("unzip -q /content/ntu-cvpdl-2025-hw-1.zip -d /content/data")
-        run_command("rm /content/ntu-cvpdl-2025-hw-1.zip")
-    else:
-        print("資料夾 /content/data 已存在，跳過下載步驟。")
-    print("✅ 資料集準備完畢。")
+    # 1) 訓練
+    print("\n[1/2] 訓練中…")
+    train_cmd = [
+        sys.executable,
+        "-m",
+        "src.train",
+        "--data_root",
+        cfg["data_root"],
+        "--epochs",
+        str(cfg["epochs"]),
+        "--batch_size",
+        str(cfg["batch_size"]),
+        "--lr",
+        str(cfg["lr"]),
+        "--output_dir",
+        cfg["output_dir"],
+    ]
+    run(train_cmd)
+    print("✅ 訓練完成。")
 
-    # --- 步驟 3: 模型訓練 ---
-    print("\n[步驟 3/4] 正在啟動模型訓練...")
-    train_command = f"python -m src.train --epochs {NUM_EPOCHS} --batch_size {BATCH_SIZE} --lr {LEARNING_RATE}"
-    run_command(train_command)
-    print("✅ 模型訓練完成。")
+    # 2) 推論
+    print("\n[2/2] 推論中…")
+    if not os.path.isfile(cfg["best_model_path"]):
+        raise FileNotFoundError(f"找不到最佳模型：{cfg['best_model_path']}（請確認訓練是否成功存檔）")
 
-    # --- 步驟 4: 產生提交檔案 ---
-    print("\n[步驟 4/4] 正在使用最佳模型進行預測...")
-    best_model_path = "best_model.pth"
-    if os.path.exists(best_model_path):
-        predict_command = f"python -m src.predict --model_path {best_model_path} --conf_threshold {CONF_THRESHOLD}"
-        run_command(predict_command)
-        print("✅ 預測完成！提交檔案已儲存至 submission.csv。")
-    else:
-        print(f"⚠️ 找不到 '{best_model_path}'，跳過預測步驟。")
-
-    print("\n🎉🎉🎉 ========== 所有流程執行完畢！ ========== 🎉🎉🎉")
+    predict_cmd = [
+        sys.executable,
+        "-m",
+        "src.predict",
+        "--data_root",
+        cfg["data_root"],
+        "--model_path",
+        cfg["best_model_path"],
+        "--conf_threshold",
+        str(cfg["conf_threshold"]),
+        "--output_path",
+        cfg["submission_path"],
+    ]
+    run(predict_cmd)
+    print(f"✅ 推論完成 → {cfg['submission_path']}")
 
 
 if __name__ == "__main__":

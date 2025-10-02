@@ -4,10 +4,10 @@ import argparse
 import csv
 import os
 import random
+
 import numpy as np
 import pandas as pd
 import torch
-
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
@@ -42,8 +42,7 @@ def main():
     # --- 1. 設定與解析命令行參數 ---
     parser = argparse.ArgumentParser(description="Pig Detection Training Script")
     default_dr = "/content/data" if os.path.exists("/content/data") else "./data"
-    parser.add_argument("--data_root", type=str, default=default_dr,
-                        help="Root path that contains train/ and test/")
+    parser.add_argument("--data_root", type=str, default=default_dr, help="Root path that contains train/ and test/")
     parser.add_argument("--epochs", type=int, default=30, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size for training")
     parser.add_argument("--lr", type=float, default=0.005, help="Initial learning rate")
@@ -67,10 +66,7 @@ def main():
     if not os.path.isdir(img_dir):
         raise NotADirectoryError(f"找不到影像資料夾：{img_dir}")
 
-    full_annotations = pd.read_csv(
-        gt_path, header=None,
-        names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
-    )
+    full_annotations = pd.read_csv(gt_path, header=None, names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"])
 
     # ✅ 更穩健的檔名解析（只收純數字檔名，如 00000001.jpg）
     existing_files = set()
@@ -99,14 +95,14 @@ def main():
     train_dataset = PigDataset(
         root_dir=DATA_ROOT,
         frame_ids=train_frames,
-        is_train=True,                      # 需要標註
-        transforms=get_transform(train=True)
+        is_train=True,  # 需要標註
+        transforms=get_transform(train=True),
     )
     val_dataset = PigDataset(
         root_dir=DATA_ROOT,
         frame_ids=val_frames,
-        is_train=True,                      # 驗證集仍取自 train，有標註 → True
-        transforms=get_transform(train=False)  # 驗證禁用隨機增強
+        is_train=True,  # 驗證集仍取自 train，有標註 → True
+        transforms=get_transform(train=False),  # 驗證禁用隨機增強
     )
 
     # --- DataLoader（快又穩） ---
@@ -118,7 +114,7 @@ def main():
     dl_kwargs = dict(
         num_workers=num_workers,
         pin_memory=True,
-        collate_fn=collate_fn,          # ✅ 使用匯入的函式，不要寫 utils.collate_fn
+        collate_fn=collate_fn,  # ✅ 使用匯入的函式，不要寫 utils.collate_fn
         worker_init_fn=seed_worker,
         generator=g,
     )
@@ -126,8 +122,8 @@ def main():
         dl_kwargs["persistent_workers"] = True
         dl_kwargs["prefetch_factor"] = 2
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,  **dl_kwargs)
-    val_loader   = DataLoader(val_dataset,   batch_size=args.batch_size, shuffle=False, **dl_kwargs)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, **dl_kwargs)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, **dl_kwargs)
 
     print(f"訓練集大小: {len(train_dataset)}, 驗證集大小: {len(val_dataset)}")
 
@@ -156,7 +152,7 @@ def main():
         lr_scheduler.step()
 
         coco_evaluator = evaluate(model, val_loader, DEVICE)
-        current_map = coco_evaluator.coco_eval["bbox"].stats[0]   # mAP_50:95
+        current_map = coco_evaluator.coco_eval["bbox"].stats[0]  # mAP_50:95
         current_ap50 = coco_evaluator.coco_eval["bbox"].stats[1]  # AP_50
 
         with open(log_file_path, mode="a", newline="") as f:
