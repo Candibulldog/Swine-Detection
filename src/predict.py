@@ -25,33 +25,25 @@ def main():
     # =========================
     parser = argparse.ArgumentParser(description="Pig Detection Prediction Script")
 
-    # NEW: 與 train.py 一致，避免硬編路徑
     default_dr = "/content/data" if os.path.exists("/content/data") else "./data"
     parser.add_argument(
-        "--data_root", type=str, default=default_dr,
-        help="Root path that contains test/ (expects test/img)"
+        "--data_root", type=str, default=default_dr, help="Root path that contains test/ (expects test/img)"
     )
 
     parser.add_argument(
-        "--model_path", type=str, default="models/best_model.pth",
-        help="Path to the trained model weights (.pth file)"
+        "--model_path", type=str, default="models/best_model.pth", help="Path to the trained model weights (.pth file)"
     )
     parser.add_argument(
-        "--output_path", type=str, default="submission.csv",
-        help="Path to save the submission csv file"
+        "--output_path", type=str, default="submission.csv", help="Path to save the submission csv file"
     )
     parser.add_argument(
-        "--conf_threshold", type=float, default=0.5,
-        help="Confidence threshold to filter out low-confidence predictions"
+        "--conf_threshold",
+        type=float,
+        default=0.5,
+        help="Confidence threshold to filter out low-confidence predictions",
     )
-    parser.add_argument(
-        "--batch_size", type=int, default=8,
-        help="Batch size for prediction"
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42,
-        help="Random seed for DataLoader determinism"
-    )
+    parser.add_argument("--batch_size", type=int, default=8, help="Batch size for prediction")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for DataLoader determinism")
     args = parser.parse_args()
 
     # 路徑檢查
@@ -66,9 +58,9 @@ def main():
     # =========================
     test_dataset = PigDataset(
         root_dir=args.data_root,
-        frame_ids=None,            # 由 Dataset 自行掃描 test/img
+        frame_ids=None,  # 由 Dataset 自行掃描 test/img
         is_train=False,
-        transforms=get_transform(train=False)
+        transforms=get_transform(train=False),
     )
 
     # DataLoader 效能與可重現性（和 train.py 一致）
@@ -87,12 +79,7 @@ def main():
         dl_kwargs["persistent_workers"] = True
         dl_kwargs["prefetch_factor"] = 2
 
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        **dl_kwargs
-    )
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, **dl_kwargs)
 
     # =========================
     # 3) 載入模型
