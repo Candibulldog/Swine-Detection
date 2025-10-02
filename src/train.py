@@ -42,9 +42,13 @@ def seed_worker(_):
 def filter_annotations(df: pd.DataFrame) -> pd.DataFrame:
     """基於數據分析結果，過濾掉無效的 bounding box 標註。"""
     print(f"原始標註數量: {len(df)}")
-
-    # ✨ 修正: 在開始修改前，先建立一個明確的副本
     df_filtered = df.copy()
+
+    # 在進行任何計算前，先移除寬或高小於等於 1 像素的無效標註
+    # 這能防止後續計算 area 或 aspect_ratio 時出現除以零或無意義的值
+    initial_count = len(df_filtered)
+    df_filtered = df_filtered[(df_filtered["bb_width"] > 1) & (df_filtered["bb_height"] > 1)]
+    print(f"移除非法標註 (w/h <= 1): {initial_count - len(df_filtered)} 個")
 
     # 過濾面積過小的 Bbox
     MIN_AREA = 500

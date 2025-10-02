@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader
+from torchvision.ops import nms
 from tqdm import tqdm
 
 from src.dataset import PigDataset
@@ -65,6 +66,9 @@ def main():
     parser.add_argument("--conf_threshold", type=float, default=0.5, help="Prediction confidence threshold")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for prediction")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--nms_iou_threshold", type=float, default=0.4, help="IoU threshold for Non-Maximum Suppression"
+    )
     args = parser.parse_args()
 
     # --- 1. 準備資料 ---
@@ -107,18 +111,26 @@ def main():
         for i, out in enumerate(outputs_cpu):
             image_id = targets[i]["image_id"].item()
 
-            # 過濾低信心度的預測
             scores = out["scores"]
-            keep_indices = scores > args.conf_threshold
+            boxes = out["boxes"]
+            labels = out["labels"]
 
-            boxes = out["boxes"][keep_indices]
-            scores = scores[keep_indices]
-            labels = out["labels"][keep_indices]
-
-            # 只保留 'pig' (class 1) 的預測
+            # 1. 先過濾 'pig' (class 1)
             pig_indices = labels == 1
             boxes = boxes[pig_indices]
             scores = scores[pig_indices]
+
+            # 2. 再過濾低信心度的預測
+            conf_indices = scores > args.conf_threshold
+            boxes = boxes[conf_indices]
+            scores = scores[conf_indices]
+
+            # ✨ NMS
+            # nms 會返回要保留的 box 的索引
+            keep_indices = nms(boxes, scores, args.nms_iou_threshold)
+
+            boxes = boxes[keep_indices]
+            scores = scores[keep_indices]
 
             # ✨ 將 Bbox 座標縮放回原始圖片尺寸
             if boxes.shape[0] > 0:
