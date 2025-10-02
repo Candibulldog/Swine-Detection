@@ -16,7 +16,17 @@ class AlbumentationsTransform:
     """
 
     def __init__(self, transforms: list):
-        self.transforms = A.Compose(transforms, bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"]))
+        self.transforms = A.Compose(
+            transforms,
+            bbox_params=A.BboxParams(
+                format="pascal_voc",
+                label_fields=["labels"],
+                # 如果一個 Bbox 經過轉換後，其可見面積小於原始面積的 25%，則移除它
+                min_visibility=0.25,
+                # 如果一個 Bbox 經過轉換後，其像素面積小於 16，則移除它 (例如 4x4)
+                min_area=16,
+            ),
+        )
 
     def __call__(self, image, target):
         # 準備傳給 Albumentations 的參數字典
