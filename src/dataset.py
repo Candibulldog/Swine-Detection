@@ -1,6 +1,9 @@
 # src/dataset.py
-import os
 
+from pathlib import Path
+from typing import List, Optional
+
+import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
@@ -8,86 +11,87 @@ from torch.utils.data import Dataset
 
 
 class PigDataset(Dataset):
-    # 在 __init__ 中加入一個 'is_train' 參數
-    def __init__(self, root_dir, frame_ids, is_train=True, transforms=None):
+    """
+    用於載入豬隻偵測資料集的 PyTorch Dataset。
+
+    根據模式 (train/val 或 test)，處理影像和對應的標註。
+    """
+
+    def __init__(self, root_dir: Path, frame_ids: Optional[List[int]], is_train: bool = True, transforms=None):
         self.root_dir = root_dir
         self.transforms = transforms
         self.is_train = is_train
 
-        # 根據 is_train 決定要讀取的資料夾
+        # 設定資料路徑
+        data_dir_name = "train" if self.is_train else "test"
+        self.image_dir = self.root_dir / data_dir_name / "img"
+
         if self.is_train:
-            self.data_dir = os.path.join(self.root_dir, "train")
-            annotations_path = os.path.join(self.data_dir, "gt.txt")
-            column_names = ["frame", "bb_left", "bb_top", "bb_width", "bb_height"]
-            full_annotations = pd.read_csv(annotations_path, header=None, names=column_names)
-            self.annotations = full_annotations[full_annotations["frame"].isin(frame_ids)]
-        else:
-            # 測試模式下，沒有標註
-            self.data_dir = os.path.join(self.root_dir, "test")
-            self.annotations = None
+            # 訓練/驗證模式：讀取標註並按 frame 分組，以加速後續查找
+            annotations_path = self.root_dir / data_dir_name / "gt.txt"
+            all_annotations = pd.read_csv(annotations_path, header=None, names=["frame", "x", "y", "w", "h"])
 
-        self.image_dir = os.path.join(self.data_dir, "img")
+            # 只保留當前資料集劃分 (train/val) 所需的標註
+            subset_annotations = all_annotations[all_annotations["frame"].isin(frame_ids)].copy()
 
-        # 如果是測試模式，frame_ids 就是所有圖片檔名
-        if not self.is_train:
-            self.image_frames = sorted([int(f.split(".")[0]) for f in os.listdir(self.image_dir)])
+            # 性能優化：將 DataFrame 按 frame 分組，方便快速查找
+            self.annotations_map = {
+                frame: group.to_numpy()[:, 1:] for frame, group in subset_annotations.groupby("frame")
+            }
+            self.image_frames = sorted(list(self.annotations_map.keys()))
         else:
-            self.image_frames = sorted(frame_ids)
+            # 測試模式：掃描影像資料夾以獲取所有 frames
+            self.annotations_map = {}
+            self.image_frames = sorted([int(p.stem) for p in self.image_dir.glob("*.jpg") if p.stem.isdigit()])
 
         mode_str = "Train/Val" if self.is_train else "Test"
-        print(f"Dataset 初始化成功，模式: {mode_str}，包含 {len(self.image_frames)} 筆資料。")
+        print(f"Dataset in '{mode_str}' mode initialized with {len(self.image_frames)} images.")
 
-    def __len__(self):
-        """
-        回傳資料集中的圖片總數。
-        """
+    def __len__(self) -> int:
+        """返回資料集中的影像總數。"""
         return len(self.image_frames)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
+        """
+        根據索引獲取一個樣本，包含影像和其對應的標註。
+
+        返回:
+            - image (torch.Tensor): 經過轉換的影像張量。
+            - target (dict): 包含標註資訊的字典。
+        """
         frame_id = self.image_frames[idx]
-        image_name = f"{frame_id:08d}.jpg"
-        image_path = os.path.join(self.image_dir, image_name)
+        image_path = self.image_dir / f"{frame_id:08d}.jpg"
         image = Image.open(image_path).convert("RGB")
 
-        # 建立 target 字典，無論是訓練還是測試都需要它
-        target = {"image_id": torch.tensor([frame_id])}
+        target = {"image_id": torch.tensor([frame_id], dtype=torch.int64)}
 
-        # 根據是否為訓練模式，決定是否要加載標註
-        if self.is_train:
-            records = self.annotations[self.annotations["frame"] == frame_id]
+        if self.is_train and frame_id in self.annotations_map:
+            # 從預先處理好的 map 中高效獲取標註
+            records = self.annotations_map[frame_id]
 
-            boxes = []
-            areas = []
-            for _, row in records.iterrows():
-                if row["bb_width"] < 1 or row["bb_height"] < 1:
-                    continue
-                xmin = row["bb_left"]
-                ymin = row["bb_top"]
-                xmax = xmin + row["bb_width"]
-                ymax = ymin + row["bb_height"]
-                boxes.append([xmin, ymin, xmax, ymax])
-                areas.append(row["bb_width"] * row["bb_height"])
+            # 使用向量化操作，快速計算 boxes 和 areas
+            x1 = records[:, 0]
+            y1 = records[:, 1]
+            w = records[:, 2]
+            h = records[:, 3]
+            x2 = x1 + w
+            y2 = y1 + h
 
-            if len(boxes) > 0:
-                boxes = torch.as_tensor(boxes, dtype=torch.float32)
-                areas = torch.as_tensor(areas, dtype=torch.float32)
-            else:
-                boxes = torch.empty((0, 4), dtype=torch.float32)
-                areas = torch.empty((0,), dtype=torch.float32)
+            boxes = torch.as_tensor(np.stack([x1, y1, x2, y2], axis=1), dtype=torch.float32)
+            areas = torch.as_tensor(w * h, dtype=torch.float32)
 
             num_boxes = boxes.shape[0]
-            labels = torch.ones((num_boxes,), dtype=torch.int64)
-            iscrowd = torch.zeros((num_boxes,), dtype=torch.int64)
-
-            # 將標註資訊加入 target 字典
             target["boxes"] = boxes
-            target["labels"] = labels
+            target["labels"] = torch.ones((num_boxes,), dtype=torch.int64)  # Class 1 for 'pig'
             target["area"] = areas
-            target["iscrowd"] = iscrowd
+            target["iscrowd"] = torch.zeros((num_boxes,), dtype=torch.int64)
+        elif self.is_train:
+            # 處理那些在 train_frames 中但可能沒有任何有效標註的圖片
+            target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
+            target["labels"] = torch.empty((0,), dtype=torch.int64)
+            target["area"] = torch.empty((0,), dtype=torch.float32)
+            target["iscrowd"] = torch.empty((0,), dtype=torch.int64)
 
-        # --- !! 關鍵修正 !! ---
-        # 現在，無論是訓練還是測試，我們都呼叫同樣的 transform 邏輯
-        # 只是測試時的 transform 比較簡單 (只有 ToTensor)
         if self.transforms:
             image, target = self.transforms(image, target)
 

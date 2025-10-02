@@ -22,10 +22,15 @@ class AlbumentationsTransform:
         # 準備傳給 Albumentations 的參數字典
         transform_args = {
             "image": np.array(image),
+            "bboxes": target.get("boxes", []),
+            "labels": target.get("labels", []),
         }
-        if "boxes" in target:
-            transform_args["bboxes"] = target["boxes"].tolist()
-            transform_args["labels"] = target["labels"].tolist()
+
+        # 將 PyTorch Tensor 轉為 list，如果它們存在的話
+        if isinstance(transform_args["bboxes"], torch.Tensor):
+            transform_args["bboxes"] = transform_args["bboxes"].tolist()
+        if isinstance(transform_args["labels"], torch.Tensor):
+            transform_args["labels"] = transform_args["labels"].tolist()
 
         transformed = self.transforms(**transform_args)
 
