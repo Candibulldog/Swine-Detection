@@ -1,12 +1,14 @@
 # src/train.py
-
 import argparse
 import csv
 import os
 import random
+import sys
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
@@ -67,6 +69,53 @@ def main():
         raise NotADirectoryError(f"找不到影像資料夾：{img_dir}")
 
     full_annotations = pd.read_csv(gt_path, header=None, names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"])
+
+    print("--- 開始數據探索 (伺服器模式) ---")
+
+    # 確保輸出目錄存在
+    output_dir = "data_analysis"  # 你可以自訂資料夾名稱
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 計算面積和長寬比
+    full_annotations["area"] = full_annotations["bb_width"] * full_annotations["bb_height"]
+    full_annotations["aspect_ratio"] = full_annotations["bb_width"] / (full_annotations["bb_height"] + 1e-6)
+
+    # --- 1. 繪製並儲存面積的直方圖 ---
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    sns.histplot(full_annotations["area"], bins=50, kde=True)
+    plt.title("Bbox 面積分佈")
+    plt.xlabel("面積 (pixels)")
+    plt.ylabel("數量")
+    plt.yscale("log")
+
+    # --- 2. 繪製並儲存長寬比的直方圖 ---
+    plt.subplot(1, 2, 2)
+    sns.histplot(full_annotations["aspect_ratio"], bins=50, kde=True)
+    plt.title("Bbox 長寬比分佈")
+    plt.xlabel("長寬比 (寬/高)")
+    plt.xlim(0, 10)
+    plt.ylabel("數量")
+    plt.yscale("log")
+
+    # --- !! 關鍵修改 !! ---
+    # 將 plt.show() 改為 plt.savefig()
+    plt.tight_layout()
+    save_path = os.path.join(output_dir, "bbox_distribution.png")
+    plt.savefig(save_path)
+    print(f"✅ 圖表已儲存至: {save_path}")
+
+    # 清除當前的圖形，以防萬一
+    plt.close()
+
+    # --- 3. 打印統計數據到終端機 ---
+    print("\n面積統計數據 (Area Stats):")
+    print(full_annotations["area"].describe())
+    print("\n長寬比統計數據 (Aspect Ratio Stats):")
+    print(full_annotations["aspect_ratio"].describe())
+
+    print("\n--- 數據探索完成，程式即將退出 ---")
+    sys.exit()  # 分析完畢，退出程式
 
     # =================================================================
     # ✨✨✨ 資料預過濾 (Data Pre-filtering) 步驟 ✨✨✨
