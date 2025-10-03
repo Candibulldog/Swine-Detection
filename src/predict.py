@@ -67,7 +67,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for prediction")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--nms_iou_threshold", type=float, default=0.4, help="IoU threshold for Non-Maximum Suppression"
+        "--nms_iou_threshold", type=float, default=0.5, help="IoU threshold for Non-Maximum Suppression"
     )
     args = parser.parse_args()
 
