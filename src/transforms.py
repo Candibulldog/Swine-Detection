@@ -75,10 +75,16 @@ def get_transform(train: bool) -> AlbumentationsTransform:
             # ✨ 技巧: 隨機安全裁切，強迫模型學習局部特徵
             A.RandomSizedBBoxSafeCrop(height=IMG_SIZE, width=IMG_SIZE, p=0.3),
             A.HorizontalFlip(p=0.5),
-            # 在圖片上隨機挖掉幾個小黑塊，強迫模型學習被遮擋的物體
-            A.CoarseDropout(max_holes=8, max_height=40, max_width=40, fill_value=0, p=0.5),
-            # 整合的顏色抖動
-            A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.7),
+            # 1. 減弱 CoarseDropout
+            #    - 降低觸發機率 (p=0.3)：不是一半的影像，而是約三分之一的影像會被遮擋。
+            #    - 減小遮擋尺寸 (max_height/width=30)：遮擋塊變小，對影像的破壞性降低。
+            #    - 減少遮擋數量 (max_holes=6)：遮擋塊的總數變少。
+            A.CoarseDropout(max_holes=6, max_height=30, max_width=30, fill_value=0, p=0.3),
+            # 2. 減弱 ColorJitter
+            #    - 降低抖動範圍：將亮度、對比度等的變化範圍從 0.2 降至 0.15。
+            #    - 降低色調變化：將色調變化範圍從 0.1 降至 0.08。
+            #    - 觸發機率 (p=0.7) 可以保持不變，因為顏色變化是常見的真實場景。
+            A.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.08, p=0.7),
             A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.1, rotate_limit=15, p=0.5),
             *base_transforms,
         ]
