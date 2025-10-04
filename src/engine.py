@@ -46,7 +46,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
         scaler.scale(total_loss).backward()
 
         # 可選：梯度裁剪，防止梯度爆炸
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         # scaler.step 會自動 unscale 梯度，然後調用 optimizer.step()
         scaler.step(optimizer)

@@ -147,7 +147,7 @@ def main():
                 parts.append(f"{score.item():.4f} {x1:.2f} {y1:.2f} {w:.2f} {h:.2f} 0")
 
             prediction_string = " ".join(parts)
-            results.append({"Image_ID": f"{image_id:08d}", "PredictionString": prediction_string})
+            results.append({"Image_ID": image_id, "PredictionString": prediction_string})
 
     # --- 4. 輸出提交檔案 ---
     df = pd.DataFrame(results)
