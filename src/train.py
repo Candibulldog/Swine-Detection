@@ -142,7 +142,7 @@ def main():
     best_path = args.output_dir / best_model_filename
 
     # set of epochs to save intermediate checkpoints
-    checkpoint_epochs = {4, 8}
+    checkpoint_epochs = {40, 80, 120}
 
     with open(log_path, mode="w", newline="") as f:
         writer = csv.writer(f)
