@@ -56,36 +56,43 @@ class AlbumentationsTransform:
         return transformed["image"], target
 
 
+# 泛化特化型增強
 def get_transform(train: bool) -> AlbumentationsTransform:
     """根據模式返回對應的資料增強 pipeline。"""
 
-    # 這是訓練和驗證/測試共享的基礎轉換：保持長寬比縮放並填充
     base_transforms = [
-        # ✨ 技巧: 先將最長邊縮放到 IMG_SIZE，保持長寬比
         A.LongestMaxSize(max_size=IMG_SIZE, p=1.0),
-        # ✨ 技巧: 再將圖片填充到 IMG_SIZE x IMG_SIZE，不足部分用黑色填充
         A.PadIfNeeded(min_height=IMG_SIZE, min_width=IMG_SIZE, border_mode=0, p=1.0),
         A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ToTensorV2(),
     ]
 
     if train:
-        # 在基礎轉換前，加入訓練模式獨有的隨機增強
         train_transforms = [
-            # ✨ 技巧: 隨機安全裁切，強迫模型學習局部特徵
+            # --- 1. 幾何與尺寸增強 ---
+            # 首先進行大的、可能改變物體尺寸和位置的變換
             A.RandomSizedBBoxSafeCrop(height=IMG_SIZE, width=IMG_SIZE, p=0.3),
             A.HorizontalFlip(p=0.5),
-            # 1. 減弱 CoarseDropout
-            #    - 降低觸發機率 (p=0.3)：不是一半的影像，而是約三分之一的影像會被遮擋。
-            #    - 減小遮擋尺寸 (max_height/width=30)：遮擋塊變小，對影像的破壞性降低。
-            #    - 減少遮擋數量 (max_holes=6)：遮擋塊的總數變少。
-            A.CoarseDropout(max_holes=6, max_h_size=30, max_w_size=30, fill_value=0, p=0.3),
-            # 2. 減弱 ColorJitter
-            #    - 降低抖動範圍：將亮度、對比度等的變化範圍從 0.2 降至 0.15。
-            #    - 降低色調變化：將色調變化範圍從 0.1 降至 0.08。
-            #    - 觸發機率 (p=0.7) 可以保持不變，因為顏色變化是常見的真實場景。
-            A.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.08, p=0.7),
             A.Affine(shift_limit_x=0.0625, shift_limit_y=0.0625, scale_limit=0.1, rotate=15, p=0.5),
+            # --- 2. 像素級與特徵抹除增強 ---
+            # A.OneOf 讓每次只隨機選擇一種顏色相關的增強，避免效果疊加過度
+            A.OneOf(
+                [
+                    A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=1.0),
+                    A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1.0),
+                ],
+                p=0.8,
+            ),  # 80% 的機率執行其中一種
+            # 【新增】模擬相機噪點與影像品質下降
+            A.ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=0.2),
+            A.ImageCompression(quality_lower=75, quality_upper=95, p=0.2),
+            # 【核心】使用 GridDropout 進行更強的特徵抹除
+            # grid=(8, 8) 表示將圖片劃分為 8x8 的網格
+            # ratio=0.6 表示隨機丟棄掉 60% 的網格塊
+            # holes_number_x 和 holes_number_y 可以更精細地控制每行/列丟棄的數量
+            A.GridDropout(ratio=0.6, unit_size_min=None, unit_size_max=None, holes_number_x=5, holes_number_y=5, p=0.5),
+            # --- 3. 最終處理 ---
+            # 將基礎轉換放在最後
             *base_transforms,
         ]
         return AlbumentationsTransform(train_transforms)
