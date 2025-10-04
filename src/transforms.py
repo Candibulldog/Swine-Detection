@@ -104,35 +104,29 @@ def get_transform(train: bool) -> AlbumentationsTransform:
     ]
 
     if train:
-        # --- 訓練專用增強管線 ---
-        # 此管線在基礎轉換之上，加入了大量增強來提升模型的泛化能力與魯棒性。
         train_transforms = [
-            # === 1. 幾何與空間增強 (Geometric & Spatial Augmentations) ===
-            # 目標：使模型對豬隻的大小、位置、角度和部分遮擋不敏感。
+            # === 1. 幾何與空間增強 ===
             A.LongestMaxSize(max_size=IMG_SIZE, p=1.0),
-            A.PadIfNeeded(min_height=IMG_SIZE, min_width=IMG_SIZE, border_mode=0, value=0, p=1.0),
-            # 隨機安全裁切：模擬「拉近鏡頭」的效果，讓模型學習偵測不同尺寸和
-            # 部分可見的豬隻。erosion_rate 參數有助於在豬隻身體被輕微裁切時
-            # 依然保留其邊界框。
+            A.PadIfNeeded(
+                min_height=IMG_SIZE,
+                min_width=IMG_SIZE,
+                border_mode=0,  # cv2.BORDER_CONSTANT
+                value=0,  # 配合 border_mode=0，使用黑色填充
+                p=1.0,
+            ),
             A.RandomSizedBBoxSafeCrop(height=IMG_SIZE, width=IMG_SIZE, erosion_rate=0.2, p=0.5),
-            # 水平翻轉：豬是左右對稱的，此增強能讓數據集規模有效加倍。
             A.HorizontalFlip(p=0.5),
-            # 仿射變換：組合了平移、縮放和旋轉，模擬了相機視角的輕微變化。
-            A.Affine(shift_limit_x=0.05, shift_limit_y=0.05, scale_limit=0.1, rotate_limit=15, p=0.7),
-            # === 2. 核心領域適應增強 (Core Domain Adaptation) ===
-            # 目標：彌合訓練集(夜間)與測試集(日間)之間的光照與色彩鴻溝。
-            # 隨機轉為灰階：強迫模型學習豬的形狀、輪廓和紋理等通用特徵，
-            # 而非依賴顏色(例如粉紅色)，直接模擬了從彩色到紅外線影像的轉換。
+            # 【修正】使用正確的參數名
+            A.Affine(
+                translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)}, scale=(0.9, 1.1), rotate=(-15, 15), p=0.7
+            ),
+            # === 2. 核心領域適應增強 ===
             A.ToGray(p=0.5),
-            # 隨機亮度和對比度：大範圍地調整亮度和對比度，用以模擬從深夜的
-            # 微光到白天的強光等各種光照條件，是應對日夜變化的核心策略。
             A.RandomBrightnessContrast(brightness_limit=0.6, contrast_limit=0.5, p=0.9),
-            # === 3. 抗遮擋增強 (Occlusion Robustness) ===
-            # 目標：在豬隻高度擁擠和互相遮擋的場景下，提升模型的偵測能力。
-            # 網格丟棄：隨機移除影像中的一塊塊網格區域，模擬嚴重的身體遮擋。
-            # 這迫使模型必須根據豬隻的部分可見特徵（如一隻耳朵、一段背）來做出判斷。
-            A.GridDropout(ratio=0.5, holes_number_x=5, holes_number_y=5, p=0.5),
-            # === 4. 最終處理 (Finalization) ===
+            # === 3. 抗遮擋增強 ===
+            # 【修正】移除不支援的參數，GridDropout 主要由 ratio 控制
+            A.GridDropout(ratio=0.5, p=0.5),
+            # === 4. 最終處理 ===
             A.Normalize(mean=DATASET_MEAN, std=DATASET_STD),
             ToTensorV2(),
         ]
