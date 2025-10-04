@@ -6,50 +6,70 @@ import torch
 from albumentations.pytorch import ToTensorV2
 
 # -----------------------------------------------------------------------------
-# 常數定義 (Constants)
+# Constants
 # -----------------------------------------------------------------------------
 
-# 將所有影像統一處理到的目標尺寸，便於模型進行批次處理。
+# The target size to which all images will be resized.
+# This ensures consistent input dimensions for batch processing in the model.
 IMG_SIZE = 640
 
-# 根據訓練集計算出的正規化統計數據。
-# 使用數據集自身的均值和標準差，可以讓數據分佈更理想地中心化，有助於模型穩定收斂。
+# Normalization statistics calculated from the training dataset.
+# Using the dataset's own mean and standard deviation helps to center the
+# data distribution around zero, which can lead to more stable and faster training.
 DATASET_MEAN = [0.3615, 0.3564, 0.3543]
 DATASET_STD = [0.3089, 0.3045, 0.3051]
 
 
 # -----------------------------------------------------------------------------
-# Albumentations 轉換器封裝 (Wrapper Class)
+# Albumentations Wrapper Class
 # -----------------------------------------------------------------------------
 
 
 class AlbumentationsTransform:
     """
-    一個封裝類，用於統一處理 Albumentations 的轉換流程。
-    其設計確保了同一轉換管線 (pipeline) 可以同時處理影像和其對應的邊界框 (bounding boxes)。
+    A wrapper class to streamline the use of Albumentations transforms.
+    It is designed to ensure that the same transformation pipeline is applied
+    consistently to both an image and its corresponding bounding boxes.
     """
 
     def __init__(self, transforms: list):
-        # 建立轉換管線，並配置邊界框的處理參數。
+        """
+        Initializes the transformation pipeline.
+
+        Args:
+            transforms (list): A list of Albumentations transformation objects.
+        """
+        # Create a composition of transforms with specific parameters for bounding boxes.
         self.transforms = A.Compose(
             transforms,
             bbox_params=A.BboxParams(
-                # 標註格式為 [x_min, y_min, x_max, y_max]。
+                # The format of the bounding boxes, [x_min, y_min, x_max, y_max].
                 format="pascal_voc",
-                # 邊界框對應的類別標籤字段名稱。
+                # Specifies the field name that contains class labels for the boxes.
                 label_fields=["labels"],
-                # 若一個邊界框在轉換後，其可見面積小於原始面積的 25%，則將其移除。
-                # 這有助於過濾掉那些在裁切後幾乎看不見的物體。
+                # If a bounding box's visibility is less than 25% after a transform
+                # (e.g., cropping), it will be removed. This prevents corrupted labels.
                 min_visibility=0.25,
-                # 若一個邊界框在轉換後，其像素面積小於 16 (例如 4x4)，則將其移除。
-                # 這有助於過濾掉過小的物體，避免模型學習噪點。
+                # If a bounding box's area is less than 16 pixels after a transform,
+                # it will be removed. This helps filter out objects that become too
+                # small to be meaningful, preventing the model from learning noise.
                 min_area=16,
             ),
         )
 
     def __call__(self, image, target):
-        """應用轉換管線到影像和標註上。"""
-        # 將 PIL 影像和 PyTorch 張量轉換為 Albumentations 所需的 Numpy 格式。
+        """
+        Applies the defined transformation pipeline to an image and its target annotations.
+
+        Args:
+            image: The input image (e.g., a PIL Image).
+            target (dict): A dictionary containing annotations like 'boxes' and 'labels'.
+
+        Returns:
+            A tuple containing the transformed image and its updated target dictionary.
+        """
+        # Convert input data to the NumPy format required by Albumentations.
+        # This handles cases where images are PIL objects and annotations are PyTorch tensors.
         transform_args = {
             "image": np.array(image),
             "bboxes": target.get("boxes", []),
@@ -60,52 +80,65 @@ class AlbumentationsTransform:
         if isinstance(transform_args["labels"], torch.Tensor):
             transform_args["labels"] = transform_args["labels"].tolist()
 
-        # 應用轉換
+        # Apply the transformation pipeline.
         transformed = self.transforms(**transform_args)
 
-        # 將轉換後的結果重新打包為 PyTorch 張量格式。
+        # Repackage the transformed data back into the expected PyTorch Tensor format.
         if "boxes" in target:
             if len(transformed["bboxes"]) > 0:
+                # Convert list of boxes back to a float tensor.
                 target["boxes"] = torch.as_tensor(transformed["bboxes"], dtype=torch.float32)
             else:
+                # Handle the edge case where all boxes are removed by the transform.
                 target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
+
+            # Convert list of labels back to an integer tensor.
             target["labels"] = torch.as_tensor(transformed["labels"], dtype=torch.int64)
 
         return transformed["image"], target
 
 
 # -----------------------------------------------------------------------------
-# 獲取轉換管線的工廠函數 (Factory Function)
+# Factory Function to Get Transforms
 # -----------------------------------------------------------------------------
 
 
 def get_transform(train: bool) -> AlbumentationsTransform:
     """
-    根據是訓練模式還是驗證/測試模式，返回相應的資料增強管線。
+    A factory function that returns the appropriate data augmentation pipeline
+    based on whether it's for training or validation/testing.
 
     Args:
-        train (bool): 若為 True，返回包含豐富資料增強的訓練管線；
-                      否則，返回僅包含基礎尺寸調整與正規化的管線。
+        train (bool): If True, returns a pipeline with extensive data augmentation.
+                      Otherwise, returns a basic pipeline with only resizing and normalization.
     """
 
-    # --- 基礎轉換管線 (用於驗證與測試) ---
-    # 此管線僅進行必要的尺寸統一與正規化，以確保模型輸入的一致性。
+    # --- Base Transforms (for Validation & Testing) ---
+    # This pipeline performs only the essential steps to prepare an image for the model,
+    # ensuring consistent evaluation without random alterations.
     base_transforms = [
-        # 1. 保持長寬比縮放：將影像最長的一邊縮放到 IMG_SIZE。
+        # 1. Resize while preserving aspect ratio: Scales the longest side of the
+        #    image to IMG_SIZE without distorting the content.
         A.LongestMaxSize(max_size=IMG_SIZE, p=1.0),
-        # 2. 填充至正方形：將縮放後的影像填充為 IMG_SIZE x IMG_SIZE 的正方形，
-        #    【最終修正】移除 'value' 參數以消除警告。
+        # 2. Pad to a square: Pads the resized image to a square shape (IMG_SIZE x IMG_SIZE).
+        #    'border_mode=0' uses constant padding (black).
         A.PadIfNeeded(min_height=IMG_SIZE, min_width=IMG_SIZE, border_mode=0, p=1.0),
-        # 3. 正規化：使用訓練集的統計數據進行正規化，使像素值分佈在零點附近，
-        #    有助於加速模型收斂並提升訓練穩定性。
+        # 3. Normalize: Applies normalization using the pre-calculated dataset statistics.
+        #    This helps the model converge faster and more reliably.
         A.Normalize(mean=DATASET_MEAN, std=DATASET_STD),
-        # 4. 轉換為張量：將 Numpy 陣列轉換為 PyTorch 張量。
+        # 4. Convert to Tensor: Converts the NumPy array to a PyTorch tensor and
+        #    rearranges dimensions from HWC (Height, Width, Channels) to CHW.
         ToTensorV2(),
     ]
 
     if train:
+        # --- Augmentation Transforms (for Training) ---
+        # This pipeline includes a variety of augmentations to increase data diversity,
+        # which helps the model generalize better and reduces overfitting.
         train_transforms = [
-            # === 1. 幾何與空間增強 ===
+            # === 1. Geometric & Spatial Augmentations ===
+            # These alter the image's geometry to make the model robust to changes in
+            # object scale, position, and orientation.
             A.LongestMaxSize(max_size=IMG_SIZE, p=1.0),
             A.PadIfNeeded(
                 min_height=IMG_SIZE,
@@ -113,23 +146,31 @@ def get_transform(train: bool) -> AlbumentationsTransform:
                 border_mode=0,  # cv2.BORDER_CONSTANT
                 p=1.0,
             ),
+            # Randomly crops a part of the image, ensuring that at least one bounding box remains valid.
             A.RandomSizedBBoxSafeCrop(height=IMG_SIZE, width=IMG_SIZE, erosion_rate=0.2, p=0.5),
+            # Flips the image horizontally.
             A.HorizontalFlip(p=0.5),
-            # 【修正】使用正確的參數名
+            # Applies a combination of translation, scaling, and rotation.
             A.Affine(
                 translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)}, scale=(0.9, 1.1), rotate=(-15, 15), p=0.7
             ),
-            # === 2. 核心領域適應增強 ===
+            # === 2. Color & Style Augmentations ===
+            # These change the visual properties of the image, simulating different
+            # environmental conditions.
+            # Converts the image to grayscale, forcing the model to learn shape and texture features.
             A.ToGray(p=0.5),
+            # Randomly alters brightness and contrast to simulate different lighting conditions.
             A.RandomBrightnessContrast(brightness_limit=0.6, contrast_limit=0.5, p=0.9),
-            # === 3. 抗遮擋增強 ===
-            # 【修正】移除不支援的參數，GridDropout 主要由 ratio 控制
+            # === 3. Robustness & Occlusion Augmentations ===
+            # These techniques help the model become more robust to partially hidden objects.
+            # Removes rectangular regions from the image, mimicking occlusion.
             A.GridDropout(ratio=0.5, p=0.5),
-            # === 4. 最終處理 ===
+            # === 4. Final Processing ===
+            # These steps are mandatory to prepare the augmented image for the model.
             A.Normalize(mean=DATASET_MEAN, std=DATASET_STD),
             ToTensorV2(),
         ]
         return AlbumentationsTransform(train_transforms)
     else:
-        # 驗證/測試模式下，只使用基礎轉換。
+        # For validation or testing, use only the basic, deterministic transforms.
         return AlbumentationsTransform(base_transforms)

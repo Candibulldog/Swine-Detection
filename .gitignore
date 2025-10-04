@@ -213,7 +213,7 @@ __marimo__/
 # 1. Datasets and Archives
 #    Never commit datasets to the repository.
 data/
-visualize*/
+visualizations/
 *.zip
 *.tar.gz
 
