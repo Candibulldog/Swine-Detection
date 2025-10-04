@@ -94,8 +94,8 @@ def get_transform(train: bool) -> AlbumentationsTransform:
         # 1. 保持長寬比縮放：將影像最長的一邊縮放到 IMG_SIZE。
         A.LongestMaxSize(max_size=IMG_SIZE, p=1.0),
         # 2. 填充至正方形：將縮放後的影像填充為 IMG_SIZE x IMG_SIZE 的正方形，
-        #    使用黑色 (value=0) 進行填充，這對夜間紅外線影像的背景很自然。
-        A.PadIfNeeded(min_height=IMG_SIZE, min_width=IMG_SIZE, border_mode=0, value=0, p=1.0),
+        #    【最終修正】移除 'value' 參數以消除警告。
+        A.PadIfNeeded(min_height=IMG_SIZE, min_width=IMG_SIZE, border_mode=0, p=1.0),
         # 3. 正規化：使用訓練集的統計數據進行正規化，使像素值分佈在零點附近，
         #    有助於加速模型收斂並提升訓練穩定性。
         A.Normalize(mean=DATASET_MEAN, std=DATASET_STD),
@@ -111,7 +111,6 @@ def get_transform(train: bool) -> AlbumentationsTransform:
                 min_height=IMG_SIZE,
                 min_width=IMG_SIZE,
                 border_mode=0,  # cv2.BORDER_CONSTANT
-                value=0,  # 配合 border_mode=0，使用黑色填充
                 p=1.0,
             ),
             A.RandomSizedBBoxSafeCrop(height=IMG_SIZE, width=IMG_SIZE, erosion_rate=0.2, p=0.5),
