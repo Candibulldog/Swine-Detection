@@ -1,6 +1,7 @@
 # main.py
 
 import argparse
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ USER_DEFAULTS = {
     "epochs": 20,  # 給予充分的訓練和微調時間
     "batch_size": 12,  # 可根據 VRAM 調整
     "lr": 0.001,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
-    "seed": 42,  # 確保實驗的可重現性
+    "seed": None,  # 確保實驗的可重現性
     "conf_threshold": 0.5,  # 預測時的信心度閾值，可後續調整
     # --- 路徑設定 ---
     "data_root": Path("./data"),
@@ -53,11 +54,13 @@ def main():
 
     args = parser.parse_args()
 
+    # process random seed
+    if args.seed is None:
+        args.seed = random.randint(0, 2**32 - 1)
+        print(f"INFO: No seed provided. Generated a random seed: {args.seed}")
+
     # 建立模型輸出路徑
     args.output_dir.mkdir(exist_ok=True)
-
-    # best_model_path 是基於 output_dir 的，動態生成
-    best_model_path = args.output_dir / "best_model.pth"
 
     print("🚀 CVPDL HW1 | 訓練並預測")
     print("-" * 50)
@@ -90,6 +93,11 @@ def main():
 
     # --- 2. 推論 ---
     print("\n[2/2] 🔍 開始推論...")
+
+    # 動態構建模型路徑，使其與 train.py 的輸出文件名匹配
+    best_model_filename = f"best_model_seed_{args.seed}.pth"
+    best_model_path = args.output_dir / best_model_filename
+
     if not best_model_path.is_file():
         raise FileNotFoundError(f"找不到最佳模型: {best_model_path} (請確認訓練是否成功存檔)")
 

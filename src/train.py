@@ -4,6 +4,7 @@ import argparse
 import csv
 import os
 import random
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -63,6 +64,10 @@ def main():
 
     set_seed(args.seed)
     args.output_dir.mkdir(exist_ok=True)
+
+    # 在日誌文件名中包含 seed，方便區分不同實驗
+    log_filename = f"training_log_seed_{args.seed}.csv"
+    log_path = args.output_dir / log_filename
 
     print(f"DEVICE is set to: {DEVICE}")
     print(f"訓練參數: {vars(args)}")
@@ -133,12 +138,15 @@ def main():
 
     # --- 4. 訓練迴圈 ---
     best_map = -1.0
-    best_path = args.output_dir / "best_model.pth"
-    log_path = args.output_dir / "training_log.csv"
+    best_model_filename = f"best_model_seed_{args.seed}.pth"
+    best_path = args.output_dir / best_model_filename
+
+    # set of epochs to save intermediate checkpoints
+    checkpoint_epochs = {4, 8}
 
     with open(log_path, mode="w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Epoch", "mAP_50:95", "AP_50"])
+        writer.writerow(["Epoch", "mAP_50:95", "AP_50", "Seed"])
 
     print("\n--- 開始訓練 ---")
     for epoch in range(args.epochs):
@@ -154,12 +162,19 @@ def main():
 
         with open(log_path, mode="a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([epoch + 1, f"{current_map:.4f}", f"{current_ap50:.4f}"])
+            writer.writerow([epoch + 1, f"{current_map:.4f}", f"{current_ap50:.4f}", args.seed])
 
         if current_map > best_map:
             best_map = current_map
             torch.save(model.state_dict(), best_path)
             print(f"🎉 New best model saved to {best_path} with mAP: {best_map:.4f} at epoch {epoch + 1}")
+
+        # 在特定 epoch 保存 checkpoint model，避免 overfitting
+        if (epoch + 1) in checkpoint_epochs:
+            if best_path.exists():
+                checkpoint_path = args.output_dir / f"best_model_seed_{args.seed}_upto_epoch_{epoch + 1}.pth"
+                shutil.copy2(best_path, checkpoint_path)
+                print(f"✅ Checkpoint saved: Current best model copied to {checkpoint_path}")
 
     print(f"\n--- 訓練完成 ---\nBest mAP: {best_map:.4f} saved at {best_path}")
 
