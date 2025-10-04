@@ -79,7 +79,7 @@ def get_transform(train: bool) -> AlbumentationsTransform:
             A.OneOf(
                 [
                     A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=1.0),
-                    A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=1.0),
+                    A.RandomBrightnessContrast(brightness_limit=0.4, contrast_limit=0.4, p=1.0),
                 ],
                 p=0.8,
             ),  # 80% 的機率執行其中一種

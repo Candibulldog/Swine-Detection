@@ -9,8 +9,8 @@ from pathlib import Path
 # ✨ Execute configuration ✨
 # ===================================================================
 USER_DEFAULTS = {
-    "epochs": 60,  # 給予充分的訓練和微調時間
-    "batch_size": 8,  # 可根據 VRAM 調整
+    "epochs": 20,  # 給予充分的訓練和微調時間
+    "batch_size": 12,  # 可根據 VRAM 調整
     "lr": 0.001,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
     "seed": 42,  # 確保實驗的可重現性
     "conf_threshold": 0.5,  # 預測時的信心度閾值，可後續調整
