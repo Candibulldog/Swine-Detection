@@ -184,7 +184,7 @@ def main():
     df = pd.DataFrame(results)
     df.to_csv(args.output_path, index=False)
 
-    print(f"\n✅ Prediction complete! Submission file saved to {args.g.output_path}")
+    print(f"\n✅ Prediction complete! Submission file saved to {args.output_path}")
     print("Top 5 predictions:")
     print(df.head())
 
