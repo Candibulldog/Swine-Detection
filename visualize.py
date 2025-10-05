@@ -184,7 +184,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize Object Detection Results")
 
     parser.add_argument("--csv_path", type=str, required=True, help="Path to the submission.csv file to analyze.")
-    parser.add_argument("--test_dir", type=str, default="data/test/img", help="Directory containing the test images.")
+    parser.add_argument(
+        "--test_dir", type=str, default="/content/data/test/img", help="Directory containing the test images."
+    )
     parser.add_argument("--conf_threshold", type=float, default=0.5, help="Confidence threshold for visualization.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for random sampling.")
 

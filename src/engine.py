@@ -117,7 +117,7 @@ def evaluate(model, data_loader, device):
 
         # Using autocast during evaluation can also speed up inference.
         with torch.amp.autocast("cuda"):
-            outputs = model(images)
+            outputs = model(images_gpu)
 
         # ✨ NEW: Calculate validation loss.
         # Temporarily switch to train mode to get the loss dictionary.
