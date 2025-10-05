@@ -2,9 +2,11 @@
 
 import argparse
 import csv
+import json
 import os
 import random
 import shutil
+import time
 from pathlib import Path
 
 import numpy as np
@@ -77,10 +79,26 @@ def main():
         "--output_dir", type=Path, default=Path("models"), help="Directory to save the best model and logs."
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
+    parser.add_argument(
+        "--checkpoint_epochs",
+        type=int,
+        nargs="+",
+        default=[],
+        help="A list of epochs at which to save model checkpoints.",
+    )
     args = parser.parse_args()
 
     set_seed(args.seed)
     args.output_dir.mkdir(exist_ok=True)
+
+    # ✨ NEW: Save experiment configuration to a separate JSON file for clarity.
+    config_filename = f"config_seed_{args.seed}.json"
+    config_path = args.output_dir / config_filename
+    # Convert Path objects to strings for JSON serialization.
+    args_dict = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
+    with open(config_path, "w") as f:
+        json.dump(args_dict, f, indent=4)
+    print(f"✅ Experiment configuration saved to {config_path}")
 
     # Include the seed in the log filename to easily distinguish between experiments.
     log_filename = f"training_log_seed_{args.seed}.csv"
@@ -163,38 +181,70 @@ def main():
     best_path = args.output_dir / best_model_filename
 
     # Define specific epochs at which to save a snapshot of the current best model.
-    checkpoint_epochs = {40, 80, 120}
+    checkpoint_epochs = set(args.checkpoint_epochs)
 
-    # Initialize the CSV log file.
-    with open(log_path, mode="w", newline="") as f:
+    # 📊 NEW: Define a more detailed header for the training log.
+    header = [
+        "epoch",
+        "mAP_50:95",
+        "AP_50",
+        "AP_75",
+        "train_loss",
+        "val_loss",
+        "train_loss_box_reg",
+        "val_loss_box_reg",
+        "lr",
+        "duration_s",
+    ]
+    with open(log_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Epoch", "mAP_50:95", "AP_50", "Seed"])
+        writer.writerow(header)
 
     print("\n--- Starting Training ---")
     for epoch in range(args.epochs):
-        train_one_epoch(model, optimizer, train_loader, DEVICE, epoch)
+        start_time = time.time()  # ⏱️ NEW: Record start time.
+
+        # ✨ MODIFIED: Capture the returned dictionary of training losses.
+        train_losses = train_one_epoch(model, optimizer, train_loader, DEVICE, epoch)
+
+        # Get the current learning rate *before* the scheduler steps.
+        current_lr = optimizer.param_groups[0]["lr"]
+
         lr_scheduler.step()
 
-        # Evaluate the model on the validation set.
-        coco_evaluator = evaluate(model, val_loader, DEVICE)
-        # The COCO stats are a numpy array: [mAP@.5:.95, AP@.5, AP@.75, ...]
+        # ✨ MODIFIED: Capture both the evaluator and the validation losses.
+        coco_evaluator, val_losses = evaluate(model, val_loader, DEVICE)
+
+        end_time = time.time()  # ⏱️ NEW: Record end time.
+        epoch_duration = end_time - start_time
+
         stats = coco_evaluator.coco_eval["bbox"].stats
-        current_map = stats[0]  # The primary metric (mAP @ IoU=.50:.95)
-        current_ap50 = stats[1]
 
-        # Log the results for this epoch.
-        with open(log_path, mode="a", newline="") as f:
+        # 📊 NEW: Prepare a comprehensive row of data for logging.
+        log_data = [
+            epoch + 1,
+            f"{stats[0]:.4f}",  # mAP_50:95
+            f"{stats[1]:.4f}",  # AP_50
+            f"{stats[2]:.4f}",  # AP_75
+            f"{train_losses.get('total_loss', -1):.4f}",
+            f"{val_losses.get('val_total_loss', -1):.4f}",
+            f"{train_losses.get('loss_box_reg', -1):.4f}",
+            f"{val_losses.get('val_loss_box_reg', -1):.4f}",
+            f"{current_lr:.6f}",
+            f"{epoch_duration:.2f}",
+        ]
+
+        with open(log_path, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([epoch + 1, f"{current_map:.4f}", f"{current_ap50:.4f}", args.seed])
+            writer.writerow(log_data)
 
-        # Check if the current model is the best one seen so far.
+        # The logic for saving the best model and checkpoints remains the same.
+        current_map = stats[0]
         if current_map > best_map:
             best_map = current_map
             torch.save(model.state_dict(), best_path)
             print(f"🎉 New best model saved to {best_path} with mAP: {best_map:.4f} at epoch {epoch + 1}")
 
-        # Save a snapshot of the best model at predefined checkpoint epochs.
-        # This is useful for analyzing performance and preventing overfitting.
         if (epoch + 1) in checkpoint_epochs:
             if best_path.exists():
                 checkpoint_path = args.output_dir / f"best_model_seed_{args.seed}_upto_epoch_{epoch + 1}.pth"

@@ -81,6 +81,9 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
     for k, v in loss_accumulator.items():
         print(f"  - {k}: {v / num_batches:.4f}")
 
+    avg_losses = {k: v / num_batches for k, v in loss_accumulator.items()}
+    return avg_losses
+
 
 @torch.no_grad()
 def evaluate(model, data_loader, device):
@@ -104,14 +107,30 @@ def evaluate(model, data_loader, device):
     iou_types = ["bbox"]  # We are evaluating bounding box detection.
     coco_evaluator = CocoEvaluator(coco, iou_types)
 
+    # ✨ NEW: Accumulator for validation losses.
+    val_loss_accumulator = defaultdict(float)
+
     progress_bar = tqdm(data_loader, desc="Validation")
 
     for images, targets in progress_bar:
-        images = [img.to(device) for img in images]
+        images_gpu = [img.to(device) for img in images]
 
         # Using autocast during evaluation can also speed up inference.
         with torch.amp.autocast("cuda"):
             outputs = model(images)
+
+        # ✨ NEW: Calculate validation loss.
+        # Temporarily switch to train mode to get the loss dictionary.
+        # This is safe within the @torch.no_grad() context, as no gradients are computed.
+        model.train()
+        targets_gpu = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        with torch.amp.autocast("cuda"):
+            loss_dict = model(images_gpu, targets_gpu)
+        model.eval()  # Switch back to evaluation mode immediately.
+
+        for k, v in loss_dict.items():
+            val_loss_accumulator[k] += v.item()
+        val_loss_accumulator["total_loss"] += sum(loss for loss in loss_dict.values()).item()
 
         # Move model outputs to the CPU for post-processing and evaluation.
         outputs_cpu = [{k: v.to("cpu") for k, v in t.items()} for t in outputs]
@@ -128,4 +147,8 @@ def evaluate(model, data_loader, device):
     # Summarize the evaluation results and print them to the console.
     coco_evaluator.summarize()
 
-    return coco_evaluator
+    # ✨ NEW: Calculate and prepare the average validation losses for return.
+    num_batches = len(data_loader)
+    avg_val_losses = {f"val_{k}": v / num_batches for k, v in val_loss_accumulator.items()}
+
+    return coco_evaluator, avg_val_losses

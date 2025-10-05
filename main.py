@@ -14,6 +14,7 @@ USER_DEFAULTS = {
     "batch_size": 12,  # 可根據 VRAM 調整
     "lr": 0.001,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
     "seed": None,  # 確保實驗的可重現性
+    "checkpoint_epochs": [40, 80, 120],
     "conf_threshold": 0.5,  # 預測時的信心度閾值，可後續調整
     # --- 路徑設定 ---
     "data_root": Path("./data"),
@@ -88,6 +89,10 @@ def main():
         "--seed",
         args.seed,
     ]
+    if args.checkpoint_epochs:
+        train_cmd.append("--checkpoint_epochs")
+        train_cmd.extend(map(str, args.checkpoint_epochs))
+
     run_command(map(str, train_cmd))
     print("✅ 訓練完成。")
 
