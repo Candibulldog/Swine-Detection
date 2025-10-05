@@ -1,0 +1,13 @@
+{
+    "data_root": "data",
+    "epochs": 200,
+    "batch_size": 12,
+    "lr": 0.001,
+    "output_dir": "models",
+    "seed": 1365666970,
+    "checkpoint_epochs": [
+        4,
+        8,
+        12
+    ]
+}
