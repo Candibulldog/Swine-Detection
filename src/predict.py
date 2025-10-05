@@ -130,7 +130,10 @@ def main():
 
     # --- 3. Run Inference and Post-processing ---
     results = []
-    print(f"--- Predicting on test set (Confidence Threshold: {args.conf_threshold}) ---")
+    print(
+        f"--- Predicting on test set (Confidence Threshold: {args.conf_threshold}) "
+        f"and (NMS IoU Threshold: {args.nms_iou_threshold}) ---"
+    )
 
     for images, targets in tqdm(test_loader):
         images_gpu = [img.to(DEVICE) for img in images]
