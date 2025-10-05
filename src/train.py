@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader
 
 from src.dataset import PigDataset
@@ -172,8 +172,19 @@ def main():
 
     # ✨ Use AdamW optimizer, which is a robust choice that often performs well.
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0005)
-    # Use CosineAnnealingLR to smoothly decay the learning rate over epochs.
-    lr_scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=0)
+
+    # ✨ Implement a learning rate scheduler with a warm-up phase followed by cosine annealing.
+    warmup_epochs = 5
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=0.01,  # 從 lr * 0.01 開始
+        total_iters=warmup_epochs,  # 在 5 個 epoch 內完成 warmup
+    )
+
+    main_scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs - warmup_epochs, eta_min=0)
+
+    # Combine the warm-up and main schedulers using SequentialLR.
+    lr_scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[warmup_epochs])
 
     # --- 4. Training Loop ---
     best_map = -1.0

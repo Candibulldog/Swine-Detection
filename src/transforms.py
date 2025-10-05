@@ -151,20 +151,38 @@ def get_transform(train: bool) -> AlbumentationsTransform:
             # Flips the image horizontally.
             A.HorizontalFlip(p=0.5),
             # Applies a combination of translation, scaling, and rotation.
-            A.Affine(
-                translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)}, scale=(0.9, 1.1), rotate=(-15, 15), p=0.7
-            ),
+            A.Affine(translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}, scale=(0.8, 1.2), rotate=(-20, 20), p=0.7),
+            A.Perspective(scale=(0.05, 0.1), p=0.3),
             # === 2. Color & Style Augmentations ===
             # These change the visual properties of the image, simulating different
             # environmental conditions.
             # Converts the image to grayscale, forcing the model to learn shape and texture features.
-            A.ToGray(p=0.5),
+            A.ToGray(ratio=0.5, p=0.3),
             # Randomly alters brightness and contrast to simulate different lighting conditions.
-            A.RandomBrightnessContrast(brightness_limit=0.6, contrast_limit=0.5, p=0.9),
+            A.RandomBrightnessContrast(
+                brightness_limit=(-0.3, 0.5),  # 允許變暗，但更強調變亮
+                contrast_limit=(-0.3, 0.5),  # 同時增加對比度的變化範圍
+                p=0.9,
+            ),
+            # Randomly shifts hue, saturation, and value to simulate various lighting and color conditions.
+            A.HueSaturationValue(
+                hue_shift_limit=20,
+                sat_shift_limit=30,
+                val_shift_limit=20,
+                p=0.5,
+            ),
             # === 3. Robustness & Occlusion Augmentations ===
             # These techniques help the model become more robust to partially hidden objects.
             # Removes rectangular regions from the image, mimicking occlusion.
             A.GridDropout(ratio=0.5, p=0.5),
+            # Applies either Gaussian blur or motion blur to simulate out-of-focus or motion scenarios.
+            A.OneOf(
+                [
+                    A.GaussianBlur(p=1.0),
+                    A.MotionBlur(p=1.0),
+                ],
+                p=0.3,
+            ),
             # === 4. Final Processing ===
             # These steps are mandatory to prepare the augmented image for the model.
             A.Normalize(mean=DATASET_MEAN, std=DATASET_STD),
