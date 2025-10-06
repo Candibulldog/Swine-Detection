@@ -157,19 +157,19 @@ def get_transform(train: bool) -> AlbumentationsTransform:
             # These change the visual properties of the image, simulating different
             # environmental conditions.
             # Converts the image to grayscale, forcing the model to learn shape and texture features.
-            A.ToGray(ratio=0.5, p=0.3),
+            A.ToGray(p=0.25),
             # Randomly alters brightness and contrast to simulate different lighting conditions.
             A.RandomBrightnessContrast(
-                brightness_limit=(-0.3, 0.5),  # 允許變暗，但更強調變亮
-                contrast_limit=(-0.3, 0.5),  # 同時增加對比度的變化範圍
-                p=0.9,
+                brightness_limit=(-0.25, 0.4),  # 允許變暗，但更強調變亮
+                contrast_limit=(-0.25, 0.4),  # 同時增加對比度的變化範圍
+                p=0.75,
             ),
             # Randomly shifts hue, saturation, and value to simulate various lighting and color conditions.
             A.HueSaturationValue(
                 hue_shift_limit=20,
                 sat_shift_limit=30,
                 val_shift_limit=20,
-                p=0.5,
+                p=0.3,
             ),
             # === 3. Robustness & Occlusion Augmentations ===
             # These techniques help the model become more robust to partially hidden objects.
@@ -181,7 +181,7 @@ def get_transform(train: bool) -> AlbumentationsTransform:
                     A.GaussianBlur(p=1.0),
                     A.MotionBlur(p=1.0),
                 ],
-                p=0.3,
+                p=0.2,
             ),
             # === 4. Final Processing ===
             # These steps are mandatory to prepare the augmented image for the model.
