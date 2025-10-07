@@ -11,7 +11,7 @@ from pathlib import Path
 # ===================================================================
 USER_DEFAULTS = {
     "epochs": 120,  # 給予充分的訓練和微調時間
-    "batch_size": 8,  # 可根據 VRAM 調整
+    "batch_size": 4,  # 可根據 VRAM 調整
     "lr": 0.0005,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
     "seed": None,  # 確保實驗的可重現性
     "checkpoint_epochs": [70, 80, 90, 100, 110, 120],  # 在這些 epoch 保存模型檢查點
