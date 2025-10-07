@@ -174,11 +174,11 @@ def main():
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0005)
 
     # ✨ Implement a learning rate scheduler with a warm-up phase followed by cosine annealing.
-    warmup_epochs = 5
+    warmup_epochs = 10
     warmup_scheduler = LinearLR(
         optimizer,
         start_factor=0.01,  # 從 lr * 0.01 開始
-        total_iters=warmup_epochs,  # 在 5 個 epoch 內完成 warmup
+        total_iters=warmup_epochs,  # 在 10 個 epoch 內完成 warmup
     )
 
     main_scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs - warmup_epochs, eta_min=0)

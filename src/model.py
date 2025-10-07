@@ -1,7 +1,7 @@
 # src/model.py
 
-from torchvision.models import ResNet50_Weights
-from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
+from torchvision.models import Swin_T_Weights
+from torchvision.models.detection import fasterrcnn_swin_t_fpn
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 
@@ -25,7 +25,7 @@ def create_model(num_classes: int):
     """
 
     # Instantiate the Faster R-CNN model with a ResNet50 FPN backbone.
-    model = fasterrcnn_resnet50_fpn_v2(
+    model = fasterrcnn_swin_t_fpn(
         # `weights=None`: This is critical. It ensures that the entire detector head
         # (RPN, RoI heads, box predictor) is NOT loaded with pre-trained weights from COCO.
         # Its weights will be randomly initialized.
@@ -33,7 +33,7 @@ def create_model(num_classes: int):
         # `weights_backbone`: This specifies that ONLY the feature extractor part of the model
         # (the ResNet-50 backbone) should be loaded with its default pre-trained weights from ImageNet.
         # This is a standard and effective practice for transfer learning.
-        weights_backbone=ResNet50_Weights.DEFAULT,
+        weights_backbone=Swin_T_Weights.DEFAULT,
     )
 
     # --- Customize the model head for the target dataset ---
