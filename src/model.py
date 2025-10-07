@@ -70,7 +70,8 @@ def create_model(num_classes: int):
 
     # 5. Define anchor generator
     anchor_generator = AnchorGenerator(
-        sizes=((32,), (64,), (128,), (256,), (512,)), aspect_ratios=((0.5, 1.0, 2.0),) * 5
+        sizes=((32,), (48,), (64,), (96,), (128,)),  # 更密集的尺寸，移除了無用的大尺寸
+        aspect_ratios=((0.4, 1.0, 2.5),) * 5,  # 稍微擴大長寬比範圍
     )
 
     # 6. Create the Faster R-CNN model

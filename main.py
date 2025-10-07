@@ -1,25 +1,31 @@
 # main.py
 
 import argparse
-import random
 import subprocess
 import sys
 from pathlib import Path
 
 # ===================================================================
-# ✨ Execute configuration ✨
+# ✨ Execute configuration V2 (Optimized for Higher Performance) ✨
 # ===================================================================
+
 USER_DEFAULTS = {
-    "epochs": 200,  # 給予充分的訓練和微調時間
-    "batch_size": 8,  # 可根據 VRAM 調整
-    "lr": 0.0001,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
-    "seed": None,  # 確保實驗的可重現性
-    "checkpoint_epochs": [60, 80, 100, 120, 140, 150, 160, 170, 180, 190, 200],  # 在這些 epoch 保存模型檢查點
-    "conf_threshold": 0.3,  # 預測時的信心度閾值，可後續調整
+    "epochs": 250,
+    "batch_size": 8,
+    "lr": 0.0001,
+    "seed": None,
+    "checkpoint_epochs": [100, 120, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250],
+    "conf_threshold": 0.3,
+    # --- 預測後處理優化 ---
+    "use_soft_nms": True,
+    "nms_iou_threshold": 0.75,
+    "soft_nms_sigma": 0.5,
+    "soft_nms_min_score": 0.3,
     # --- 路徑設定 ---
     "data_root": Path("./data"),
     "output_dir": Path("./models"),
-    "submission_path": Path("submission.csv"),
+    # submission_path 將在 main 函式中動態生成，這裡保留一個佔位符
+    "submission_path": None,
 }
 # ===================================================================
 
@@ -50,20 +56,30 @@ def main():
     )
     # 從 USER_DEFAULTS 自動生成命令行參數
     for key, value in USER_DEFAULTS.items():
-        arg_type = type(value) if not isinstance(value, bool) else lambda x: bool(strtobool(x))
-        parser.add_argument(f"--{key}", type=arg_type, default=value, help=f"Override default {key}")
+        # ✨ 修改 argparse 邏輯以支持動態檔名 ✨
+        if key == "submission_path":
+            parser.add_argument(
+                f"--{key}", type=Path, default=value, help="Path to save submission file. (Auto-generated if not set)"
+            )
+        else:
+            arg_type = type(value) if not isinstance(value, bool) else lambda x: bool(strtobool(x))
+            parser.add_argument(f"--{key}", type=arg_type, default=value, help=f"Override default {key}")
 
     args = parser.parse_args()
 
-    # process random seed
-    if args.seed is None:
-        args.seed = random.randint(0, 2**32 - 1)
-        print(f"INFO: No seed provided. Generated a random seed: {args.seed}")
+    # --- ✨ 1. 建立 submissions 資料夾並動態生成檔名 ✨ ---
+    # 確保 submissions 資料夾存在
+    submissions_dir = Path("./submissions")
+    submissions_dir.mkdir(exist_ok=True)
+
+    # 如果使用者沒有從命令列手動指定 submission_path，則根據 seed 動態生成
+    if args.submission_path is None:
+        args.submission_path = submissions_dir / f"submission_seed_{args.seed}_anchor_v2.csv"
 
     # 建立模型輸出路徑
     args.output_dir.mkdir(exist_ok=True)
 
-    print("🚀 CVPDL HW1 | 訓練並預測")
+    print("🚀 CVPDL HW1 | 訓練並預測 (Optimized Run)")
     print("-" * 50)
     print("當前配置:")
     for key, value in vars(args).items():
@@ -99,13 +115,14 @@ def main():
     # --- 2. 推論 ---
     print("\n[2/2] 🔍 開始推論...")
 
-    # 動態構建模型路徑，使其與 train.py 的輸出文件名匹配
+    # 動態構建模型路徑
     best_model_filename = f"best_model_seed_{args.seed}.pth"
     best_model_path = args.output_dir / best_model_filename
 
     if not best_model_path.is_file():
         raise FileNotFoundError(f"找不到最佳模型: {best_model_path} (請確認訓練是否成功存檔)")
 
+    # ✨ 2. 將所有優化後的參數傳遞給 predict.py ✨
     predict_cmd = [
         sys.executable,
         "-m",
@@ -120,7 +137,16 @@ def main():
         args.submission_path,
         "--seed",
         args.seed,
+        "--nms_iou_threshold",
+        args.nms_iou_threshold,
+        "--soft_nms_sigma",
+        args.soft_nms_sigma,
+        "--soft_nms_min_score",
+        args.soft_nms_min_score,
     ]
+    if args.use_soft_nms:
+        predict_cmd.append("--use_soft_nms")
+
     run_command(map(str, predict_cmd))
     print(f"\n🎉 全部完成！提交檔案已儲存至 {args.submission_path}")
 
