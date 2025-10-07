@@ -94,11 +94,11 @@ def main():
     parser.add_argument(
         "--output_path", type=Path, default=Path("submission.csv"), help="Path to save the submission CSV file."
     )
-    parser.add_argument("--conf_threshold", type=float, default=0.5, help="Confidence score threshold for predictions.")
+    parser.add_argument("--conf_threshold", type=float, default=0.3, help="Confidence score threshold for predictions.")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for inference.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
     parser.add_argument(
-        "--nms_iou_threshold", type=float, default=0.5, help="IoU threshold for Non-Maximum Suppression."
+        "--nms_iou_threshold", type=float, default=0.65, help="IoU threshold for Non-Maximum Suppression."
     )
     args = parser.parse_args()
 
