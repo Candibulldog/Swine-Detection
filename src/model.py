@@ -1,49 +1,109 @@
 # src/model.py
 
-from torchvision.models import ResNet50_Weights
-from torchvision.models.detection import fasterrcnn_resnet50_fpn_v2
+import torch.nn as nn
+from torchvision.models import ConvNeXt_Tiny_Weights, convnext_tiny
+from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.rpn import AnchorGenerator
+from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool
+
+
+class ConvNeXtBackboneWithFPN(nn.Module):
+    """
+    Wrapper to connect ConvNeXt backbone with a Feature Pyramid Network (FPN).
+    """
+
+    def __init__(self, backbone, return_layers, in_channels_list, out_channels):
+        super().__init__()
+        self.body = backbone
+        self.fpn = FeaturePyramidNetwork(
+            in_channels_list=in_channels_list,
+            out_channels=out_channels,
+            extra_blocks=LastLevelMaxPool(),
+        )
+        self.out_channels = out_channels
+
+    def forward(self, x):
+        # The backbone (self.body) returns a dictionary of features
+        features = self.body(x)
+        # The FPN takes this dictionary and returns its own feature dictionary
+        features = self.fpn(features)
+        return features
 
 
 def create_model(num_classes: int):
     """
-    Creates a Faster R-CNN model with a ResNet-50 FPN backbone, configured for transfer learning.
-
-    This function adheres to specific transfer learning rules:
-    - The backbone (ResNet-50) is initialized with weights pre-trained on ImageNet.
-    - The rest of the model, including the RPN, RoI heads, and the final classification/regression
-      layers, is randomly initialized and must be trained from scratch on the target dataset.
-    - No weights pre-trained on COCO for the full Faster R-CNN model are used.
-
-    Args:
-        num_classes (int): The number of classes for the classification head.
-                           This should include the background class, so for a single-object
-                           detection task (e.g., "pig"), num_classes should be 2 (1 for pig + 1 for background).
-
-    Returns:
-        A PyTorch model instance (Faster R-CNN).
+    Creates a Faster R-CNN model with a ConvNeXt-Tiny backbone and FPN.
     """
+    print("✅ INFO: Creating model with ConvNeXt-Tiny backbone.")
 
-    # Instantiate the Faster R-CNN model with a ResNet50 FPN backbone.
-    model = fasterrcnn_resnet50_fpn_v2(
-        # `weights=None`: This is critical. It ensures that the entire detector head
-        # (RPN, RoI heads, box predictor) is NOT loaded with pre-trained weights from COCO.
-        # Its weights will be randomly initialized.
-        weights=None,
-        # `weights_backbone`: This specifies that ONLY the feature extractor part of the model
-        # (the ResNet-50 backbone) should be loaded with its default pre-trained weights from ImageNet.
-        # This is a standard and effective practice for transfer learning.
-        weights_backbone=ResNet50_Weights.DEFAULT,
+    # 1. Load ConvNeXt-Tiny backbone with ImageNet pre-trained weights
+    convnext_backbone = convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
+
+    # 2. Create a feature extractor to get intermediate features.
+    #    ConvNeXt's `features` attribute is a Sequential module. We need to
+    #    intercept the outputs of each stage.
+    class ConvNeXtFeatureExtractor(nn.Module):
+        def __init__(self, convnext_model):
+            super().__init__()
+            # We directly take the feature extractor part of ConvNeXt
+            self.features = convnext_model.features
+
+        def forward(self, x):
+            # ConvNeXt-Tiny has 4 stages, with downsampling at the beginning of each.
+            # The stages are at indices 1, 3, 5, 7.
+            outputs = {}
+            # Stage 1 output (after self.features[1])
+            x = self.features[0](x)
+            x = self.features[1](x)
+            outputs["0"] = x  # Output channels: 96
+
+            # Stage 2 output (after self.features[3])
+            x = self.features[2](x)
+            x = self.features[3](x)
+            outputs["1"] = x  # Output channels: 192
+
+            # Stage 3 output (after self.features[5])
+            x = self.features[4](x)
+            x = self.features[5](x)
+            outputs["2"] = x  # Output channels: 384
+
+            # Stage 4 output (after self.features[7])
+            x = self.features[6](x)
+            x = self.features[7](x)
+            outputs["3"] = x  # Output channels: 768
+
+            return outputs
+
+    backbone = ConvNeXtFeatureExtractor(convnext_backbone)
+
+    # 3. Define the channels for FPN.
+    #    These are the output channels of each stage of ConvNeXt-Tiny.
+    in_channels_list = [96, 192, 384, 768]
+    out_channels = 256  # Standard FPN output channels
+
+    # 4. Create the backbone with FPN.
+    backbone_with_fpn = ConvNeXtBackboneWithFPN(
+        backbone=backbone,
+        return_layers={"0": "0", "1": "1", "2": "2", "3": "3"},
+        in_channels_list=in_channels_list,
+        out_channels=out_channels,
     )
 
-    # --- Customize the model head for the target dataset ---
-    # 1. Get the number of input features for the classifier.
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    # 5. Define anchor generator (using the standard FPN setup).
+    anchor_generator = AnchorGenerator(
+        sizes=((32,), (64,), (128,), (256,), (512,)), aspect_ratios=((0.5, 1.0, 2.0),) * 5
+    )
 
-    # 2. Replace the pre-trained head with a new, randomly initialized one.
-    #    The new head is a `FastRCNNPredictor` layer with the correct number of output classes
-    #    (our `num_classes`). This is necessary because the original head was designed for a
-    #    different dataset (like COCO) with a different number of classes.
+    # 6. Create the Faster R-CNN model.
+    model = FasterRCNN(
+        backbone_with_fpn,
+        num_classes=91,  # Temporary, will be replaced
+        rpn_anchor_generator=anchor_generator,
+    )
+
+    # 7. Replace the box predictor head.
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
     return model
