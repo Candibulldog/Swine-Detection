@@ -10,11 +10,11 @@ from pathlib import Path
 # ✨ Execute configuration ✨
 # ===================================================================
 USER_DEFAULTS = {
-    "epochs": 120,  # 給予充分的訓練和微調時間
-    "batch_size": 12,  # 可根據 VRAM 調整
-    "lr": 0.0005,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
+    "epochs": 200,  # 給予充分的訓練和微調時間
+    "batch_size": 8,  # 可根據 VRAM 調整
+    "lr": 0.0001,  # 配合 AdamW 和 CosineAnnealingLR 的較低學習率
     "seed": None,  # 確保實驗的可重現性
-    "checkpoint_epochs": [70, 80, 90, 100, 110, 120],  # 在這些 epoch 保存模型檢查點
+    "checkpoint_epochs": [60, 80, 100, 120, 140, 150, 160, 170, 180, 190, 200],  # 在這些 epoch 保存模型檢查點
     "conf_threshold": 0.3,  # 預測時的信心度閾值，可後續調整
     # --- 路徑設定 ---
     "data_root": Path("./data"),

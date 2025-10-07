@@ -158,7 +158,7 @@ def get_transform(train: bool) -> AlbumentationsTransform:
             # These change the visual properties of the image, simulating different
             # environmental conditions.
             # Converts the image to grayscale, forcing the model to learn shape and texture features.
-            A.ToGray(p=0.5),
+            A.ToGray(p=0.3),
             # Randomly alters brightness and contrast to simulate different lighting conditions.
             A.RandomBrightnessContrast(brightness_limit=0.6, contrast_limit=0.5, p=0.9),
             # === 3. Robustness & Occlusion Augmentations ===
