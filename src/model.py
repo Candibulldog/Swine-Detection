@@ -5,74 +5,108 @@ from torchvision.models import Swin_V2_T_Weights, swin_v2_t
 from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.rpn import AnchorGenerator
-from torchvision.models.feature_extraction import create_feature_extractor  # ✨ 1. 導入新工具
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool
+
+
+class SwinBackboneWithFPN(torch.nn.Module):
+    """
+    Swin Transformer V2 backbone with Feature Pyramid Network (FPN).
+    """
+
+    def __init__(self, backbone, return_layers, in_channels_list, out_channels):
+        super().__init__()
+        self.body = backbone
+        self.fpn = FeaturePyramidNetwork(
+            in_channels_list=in_channels_list,
+            out_channels=out_channels,
+            extra_blocks=LastLevelMaxPool(),
+        )
+        self.out_channels = out_channels
+
+    def forward(self, x):
+        features = self.body(x)
+        features = self.fpn(features)
+        return features
 
 
 def create_model(num_classes: int):
     """
     Creates a Faster R-CNN model with a Swin-V2-T backbone and FPN, configured for transfer learning.
-    This version uses the official torchvision feature_extraction utility for robustness.
+
+    This function adheres to specific transfer learning rules:
+    - The backbone (Swin-V2-T) is initialized with weights pre-trained on ImageNet.
+    - The rest of the model, including the RPN, RoI heads, and the final classification/regression
+      layers, is randomly initialized and must be trained from scratch on the target dataset.
+
+    Args:
+        num_classes (int): The number of classes for the classification head.
+                           This should include the background class, so for a single-object
+                           detection task (e.g., "pig"), num_classes should be 2 (1 for pig + 1 for background).
+
+    Returns:
+        A PyTorch model instance (Faster R-CNN with Swin-V2-T backbone).
     """
-    print("✅ INFO: Creating model with Swin Transformer (Swin-V2-T) backbone.")
 
-    # --- 1. 加載預訓練的 Swin-V2-T Backbone ---
-    backbone = swin_v2_t(weights=Swin_V2_T_Weights.DEFAULT)
+    # Load Swin-V2-T backbone with ImageNet pre-trained weights
+    swin_backbone = swin_v2_t(weights=Swin_V2_T_Weights.DEFAULT)
 
-    # --- 2. 使用官方工具創建特徵提取器 ---
-    # 我們需要告訴工具，我們想要從 Swin-V2-T 的哪幾層提取特徵。
-    # 對於 FPN，我們通常需要 4 個不同尺度的特徵圖。
-    # Swin-T 的特徵層通常在 'features' 模塊中，編號 2, 3, 4, 5 對應 4 個 stage 的輸出。
-    # 注意：層的名稱可能因 torchvision 版本而異，需要確認。
-    # 一個常見的 return_nodes 字典：
-    return_nodes = {
-        "features.2": "0",
-        "features.3": "1",
-        "features.4": "2",
-        "features.5": "3",
-    }
-    # 讓 torchvision 自動幫我們創建一個只返回這四層輸出的新模型
-    body = create_feature_extractor(backbone, return_nodes=return_nodes)
+    # Remove the classification head (we only need the feature extractor)
+    swin_backbone.head = torch.nn.Identity()
 
-    # 該工具創建的模型會自動處理 permute 等操作，使輸出兼容 FPN
-
-    # --- 3. 創建 FPN ---
-    # Swin-V2-T 在這四個 stage 的輸出通道數是 [96, 192, 384, 768]
-    in_channels_list = [96, 192, 384, 768]
-    fpn = FeaturePyramidNetwork(
-        in_channels_list=in_channels_list,
-        out_channels=256,
-        extra_blocks=LastLevelMaxPool(),
-    )
-
-    # --- 4. 將 Backbone 和 FPN 組合起來 ---
-    # 我們需要一個簡單的包裝類來按順序調用它們
-    class BackboneWithFPN(torch.nn.Module):
-        def __init__(self, body, fpn):
+    # Create a feature extractor that returns intermediate features
+    class SwinV2FeatureExtractor(torch.nn.Module):
+        def __init__(self, swin_model):
             super().__init__()
-            self.body = body
-            self.fpn = fpn
-            self.out_channels = fpn.out_channels
+            # 我們直接引用 swin_model 的 features 列表
+            self.features = swin_model.features
+            # permute 操作是將 [B, H*W, C] 轉為 [B, C, H, W]
+            self.permute = swin_model.permute
 
         def forward(self, x):
-            x = self.body(x)
-            x = self.fpn(x)
-            return x
+            # 存儲不同 stage 的輸出
+            outputs = {}
+            feature_idx = 0
 
-    backbone_with_fpn = BackboneWithFPN(body, fpn)
+            # 遍歷 features 中的每一個模塊 (Conv, LayerNorm, SwinTransformerBlock, etc.)
+            for i, layer in enumerate(self.features):
+                x = layer(x)
+                # Swin-V2 的結構是 downsample -> blocks
+                # 我們在每個 stage 的 block 序列之後提取特徵
+                # 根據 torchvision swin_v2_t 的源碼, stage 的分界點在索引 1, 3, 5, 7
+                if i in [1, 3, 5, 7]:
+                    # 提取特徵並進行 permute
+                    outputs[str(feature_idx)] = self.permute(x)
+                    feature_idx += 1
 
-    # --- 5. 創建 Faster R-CNN 模型 (和之前一樣) ---
+            return outputs
+
+    backbone = SwinV2FeatureExtractor(swin_backbone)
+
+    # Define the channels for each feature map from Swin-V2-T
+    in_channels_list = [96, 192, 384, 768]
+    out_channels = 256
+
+    # Create backbone with FPN
+    backbone_with_fpn = SwinBackboneWithFPN(
+        backbone=backbone,
+        return_layers={"0": "0", "1": "1", "2": "2", "3": "3"},
+        in_channels_list=in_channels_list,
+        out_channels=out_channels,
+    )
+
+    # Define anchor generator
     anchor_generator = AnchorGenerator(
         sizes=((32,), (64,), (128,), (256,), (512,)), aspect_ratios=((0.5, 1.0, 2.0),) * 5
     )
 
+    # Create the Faster R-CNN model
     model = FasterRCNN(
         backbone_with_fpn,
-        num_classes=91,  # 臨時值
+        num_classes=91,  # Temporary, will be replaced
         rpn_anchor_generator=anchor_generator,
     )
 
-    # --- 6. 替換頭部 (和之前一樣) ---
+    # Replace the box predictor with the correct number of classes
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
