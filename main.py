@@ -1,6 +1,7 @@
 # main.py
 
 import argparse
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -66,6 +67,10 @@ def main():
             parser.add_argument(f"--{key}", type=arg_type, default=value, help=f"Override default {key}")
 
     args = parser.parse_args()
+
+    if args.seed is None:
+        args.seed = random.randint(0, 2**32 - 1)
+        print(f"INFO: No seed provided. Generated a random seed: {args.seed}")
 
     # --- ✨ 1. 建立 submissions 資料夾並動態生成檔名 ✨ ---
     # 確保 submissions 資料夾存在
