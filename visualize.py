@@ -128,7 +128,7 @@ def main(args):
 
     # --- 1. Create Output Directory ---
     # ✨ MODIFIED: All visualizations are now saved under a unified './visualizations' directory.
-    base_output_dir = Path("./visualizations/seed_4143736449")
+    base_output_dir = Path("./visualizations/")
     base_output_dir.mkdir(parents=True, exist_ok=True)
     output_dir_specific = base_output_dir / f"viz_{csv_path.stem}"
     output_dir_specific.mkdir(parents=True, exist_ok=True)

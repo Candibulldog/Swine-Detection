@@ -151,8 +151,9 @@ def get_transform(train: bool) -> AlbumentationsTransform:
             # Flips the image horizontally.
             A.HorizontalFlip(p=0.5),
             # Applies a combination of translation, scaling, and rotation.
-            A.Affine(translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}, scale=(0.8, 1.2), rotate=(-20, 20), p=0.7),
-            A.Perspective(scale=(0.05, 0.1), p=0.2),
+            A.Affine(
+                translate_percent={"x": (-0.05, 0.05), "y": (-0.05, 0.05)}, scale=(0.9, 1.1), rotate=(-15, 15), p=0.7
+            ),
             # === 2. Color & Style Augmentations ===
             # These change the visual properties of the image, simulating different
             # environmental conditions.
