@@ -69,14 +69,14 @@ def main():
     set_seed(args.seed)
     args.output_dir.mkdir(exist_ok=True)
 
-    config_filename = f"config_{args.backbone}_seed_{args.seed}.json"
+    config_filename = f"config_seed_{args.seed}.json"
     config_path = args.output_dir / config_filename
     args_dict = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
     with open(config_path, "w") as f:
         json.dump(args_dict, f, indent=4)
     print(f"✅ Experiment configuration saved to {config_path}")
 
-    log_filename = f"training_log_{args.backbone}_seed_{args.seed}.csv"
+    log_filename = f"training_log_seed_{args.seed}.csv"
     log_path = args.output_dir / log_filename
 
     print(f"🎯 DEVICE: {DEVICE}")
@@ -159,7 +159,10 @@ def main():
 
     # --- Training Loop ---
     best_map = -1.0
-    best_model_filename = f"best_model_{args.backbone}_seed_{args.seed}.pth"
+    patience = 20  # 20 epochs 沒有改善就考慮停止
+    epochs_no_improve = 0
+
+    best_model_filename = f"best_model_seed_{args.seed}.pth"
     best_path = args.output_dir / best_model_filename
 
     checkpoint_epochs = set(args.checkpoint_epochs)
@@ -219,12 +222,22 @@ def main():
         current_map = stats[0]
         if current_map > best_map:
             best_map = current_map
+            epochs_no_improve = 0  # 重置計數器
             torch.save(model.state_dict(), best_path)
             print(f"🎉 New best mAP: {best_map:.4f} at epoch {epoch + 1}")
+        else:
+            epochs_no_improve += 1
+            print(f"⏳ No improvement for {epochs_no_improve} epochs (best: {best_map:.4f})")
+
+            # 早停檢查
+        if epochs_no_improve >= patience:
+            print(f"\n⚠️ Early stopping triggered at epoch {epoch + 1}")
+            print(f"   Best mAP: {best_map:.4f} was at epoch {epoch + 1 - epochs_no_improve}")
+            break
 
         if (epoch + 1) in checkpoint_epochs:
             if best_path.exists():
-                checkpoint_path = args.output_dir / f"best_model_{args.backbone}_seed_{args.seed}_epoch_{epoch + 1}.pth"
+                checkpoint_path = args.output_dir / f"best_model_seed_{args.seed}_epoch_{epoch + 1}.pth"
                 shutil.copy2(best_path, checkpoint_path)
                 print(f"💾 Checkpoint saved: {checkpoint_path}")
 
