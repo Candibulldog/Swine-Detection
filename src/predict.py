@@ -66,7 +66,7 @@ def main():
     parser.add_argument(
         "--output_path", type=Path, default=Path("submission.csv"), help="Path to save the submission CSV file."
     )
-    parser.add_argument("--conf_threshold", type=float, default=0.3, help="Confidence score threshold for predictions.")
+    parser.add_argument("--conf_threshold", type=float, default=0.2, help="Confidence score threshold for predictions.")
     parser.add_argument("--batch_size", type=int, default=12, help="Batch size for inference.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
     parser.add_argument(
@@ -75,8 +75,8 @@ def main():
 
     # ✨ 2. 添加新的命令行參數 ✨
     parser.add_argument("--use_soft_nms", action="store_true", help="Use Soft-NMS instead of standard NMS.")
-    parser.add_argument("--soft_nms_sigma", type=float, default=0.5, help="Sigma for Gaussian Soft-NMS.")
-    parser.add_argument("--soft_nms_min_score", type=float, default=0.3, help="Minimum score threshold for Soft-NMS.")
+    parser.add_argument("--soft_nms_sigma", type=float, default=0.7, help="Sigma for Gaussian Soft-NMS.")
+    parser.add_argument("--soft_nms_min_score", type=float, default=0.2, help="Minimum score threshold for Soft-NMS.")
 
     args = parser.parse_args()
 
