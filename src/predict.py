@@ -13,6 +13,9 @@ from tqdm import tqdm
 
 from src.dataset import PigDataset
 from src.model import create_model
+
+# ✨ 1. 導入你的 soft_nms 模塊
+from src.soft_nms import soft_nms
 from src.transforms import IMG_SIZE, get_transform
 from src.utils import collate_fn
 
@@ -25,13 +28,6 @@ NUM_CLASSES = 2
 def get_original_image_size(image_id: int, root_dir: Path) -> tuple[int, int]:
     """
     Reads an original image from the test set and returns its dimensions.
-
-    Args:
-        image_id (int): The frame ID of the image.
-        root_dir (Path): The root directory of the dataset.
-
-    Returns:
-        tuple[int, int]: A tuple containing the (width, height) of the original image.
     """
     image_path = root_dir / "test" / "img" / f"{image_id:08d}.jpg"
     with Image.open(image_path) as img:
@@ -41,44 +37,20 @@ def get_original_image_size(image_id: int, root_dir: Path) -> tuple[int, int]:
 def scale_boxes_to_original(boxes: torch.Tensor, current_size: int, original_size: tuple[int, int]) -> torch.Tensor:
     """
     Rescales bounding boxes from the model's square input size back to the original image dimensions.
-    This function reverses the `LongestMaxSize` and `PadIfNeeded` transformations.
-
-    Args:
-        boxes (torch.Tensor): Predicted bounding boxes on the padded, square image.
-        current_size (int): The size of the square input to the model (e.g., IMG_SIZE).
-        original_size (tuple[int, int]): The (width, height) of the original image.
-
-    Returns:
-        torch.Tensor: The bounding boxes scaled to the original image coordinates.
     """
     orig_w, orig_h = original_size
-
-    # The transformations first scaled the longest side to `current_size` and then padded the shorter side.
-    # The scale factor is therefore determined by the ratio of the longest original side to `current_size`.
     scale_factor = max(orig_w, orig_h) / current_size
-
-    # Calculate the padding that was added to the shorter side to make the image square.
-    if orig_w >= orig_h:  # Original image was landscape or square
-        # Padded on top and bottom
+    if orig_w >= orig_h:
         pad_h = (current_size - orig_h / scale_factor) / 2
         pad_w = 0
-    else:  # Original image was portrait
-        # Padded on left and right
+    else:
         pad_w = (current_size - orig_w / scale_factor) / 2
         pad_h = 0
-
-    # Reverse the transformation process:
-    # 1. Subtract the padding from the coordinates.
-    boxes[:, [0, 2]] -= pad_w  # Subtract horizontal padding from x-coordinates
-    boxes[:, [1, 3]] -= pad_h  # Subtract vertical padding from y-coordinates
-
-    # 2. Multiply by the scale factor to resize to original dimensions.
+    boxes[:, [0, 2]] -= pad_w
+    boxes[:, [1, 3]] -= pad_h
     boxes *= scale_factor
-
-    # 3. Clip coordinates to ensure they are within the original image boundaries.
     boxes[:, [0, 2]] = boxes[:, [0, 2]].clamp(min=0, max=orig_w)
     boxes[:, [1, 3]] = boxes[:, [1, 3]].clamp(min=0, max=orig_h)
-
     return boxes
 
 
@@ -100,19 +72,22 @@ def main():
     parser.add_argument(
         "--nms_iou_threshold", type=float, default=0.65, help="IoU threshold for Non-Maximum Suppression."
     )
+
+    # ✨ 2. 添加新的命令行參數 ✨
+    parser.add_argument("--use_soft_nms", action="store_true", help="Use Soft-NMS instead of standard NMS.")
+    parser.add_argument("--soft_nms_sigma", type=float, default=0.5, help="Sigma for Gaussian Soft-NMS.")
+    parser.add_argument("--soft_nms_min_score", type=float, default=0.3, help="Minimum score threshold for Soft-NMS.")
+
     args = parser.parse_args()
 
     # --- 1. Prepare Data ---
     test_dataset = PigDataset(args.data_root, frame_ids=None, is_train=False, transforms=get_transform(train=False))
-
-    # Configure DataLoader consistently with the training script.
     num_workers = min(int(os.cpu_count() * 0.75), 12)
     g = torch.Generator().manual_seed(args.seed)
-
     test_loader = DataLoader(
         test_dataset,
         batch_size=args.batch_size,
-        shuffle=False,  # No need to shuffle for prediction
+        shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
         collate_fn=collate_fn,
@@ -122,26 +97,29 @@ def main():
 
     # --- 2. Load Model ---
     model = create_model(num_classes=NUM_CLASSES)
-    # Load weights with `weights_only=True` for security.
     state = torch.load(args.model_path, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
     model.to(DEVICE)
-    model.eval()  # Set model to evaluation mode
+    model.eval()
 
     # --- 3. Run Inference and Post-processing ---
     results = []
+
+    # ✨ 更新打印信息 ✨
+    nms_method_str = "Soft-NMS" if args.use_soft_nms else "Standard NMS"
     print(
-        f"--- Predicting on test set (Confidence Threshold: {args.conf_threshold}) "
-        f"and (NMS IoU Threshold: {args.nms_iou_threshold}) ---"
+        f"--- Predicting on test set (NMS Method: {nms_method_str}) ---\n"
+        f"(Confidence Threshold: {args.conf_threshold}) and (NMS IoU Threshold: {args.nms_iou_threshold})"
     )
+    if args.use_soft_nms:
+        print(f"(Soft-NMS Sigma: {args.soft_nms_sigma}) and (Soft-NMS Min Score: {args.soft_nms_min_score})")
 
     for images, targets in tqdm(test_loader):
         images_gpu = [img.to(DEVICE) for img in images]
 
-        with torch.inference_mode():  # Disables gradient calculation for efficiency
+        with torch.inference_mode():
             outputs = model(images_gpu)
 
-        # Move outputs to CPU for post-processing
         outputs_cpu = [{k: v.to("cpu") for k, v in out.items()} for out in outputs]
 
         for i, out in enumerate(outputs_cpu):
@@ -158,12 +136,25 @@ def main():
             boxes = boxes[conf_indices]
             scores = scores[conf_indices]
 
-            # Step 3: Apply Non-Maximum Suppression (NMS).
-            # NMS removes redundant, overlapping bounding boxes for the same object,
-            # keeping only the one with the highest score.
-            keep_indices = nms(boxes, scores, args.nms_iou_threshold)
-            boxes = boxes[keep_indices]
-            scores = scores[keep_indices]
+            # ✨ 3. 根據參數選擇 NMS 算法 ✨
+            if args.use_soft_nms:
+                # 使用 Soft-NMS。它返回要保留的框的索引和它們被更新後的分數。
+                keep_indices, updated_scores = soft_nms(
+                    boxes,
+                    scores,
+                    iou_threshold=args.nms_iou_threshold,
+                    sigma=args.soft_nms_sigma,
+                    score_threshold=args.soft_nms_min_score,  # 使用 soft_nms 自己的閾值
+                    method="gaussian",
+                )
+                boxes = boxes[keep_indices]
+                scores = updated_scores  # ✨ 使用被衰減後的新分數
+            else:
+                # 使用原始的標準 NMS
+                if boxes.shape[0] > 0:  # 確保有框可供 nms 處理
+                    keep_indices = nms(boxes, scores, args.nms_iou_threshold)
+                    boxes = boxes[keep_indices]
+                    scores = scores[keep_indices]
 
             # Step 4: Scale the final bounding box coordinates back to the original image size.
             if boxes.shape[0] > 0:
@@ -171,13 +162,11 @@ def main():
                 boxes = scale_boxes_to_original(boxes, current_size=IMG_SIZE, original_size=original_size)
 
             # Format the predictions into the required Kaggle submission string.
-            # Format: "score x1 y1 w h class_id" for each box, joined by spaces.
             parts = []
             for score, box in zip(scores, boxes):
                 x1, y1, x2, y2 = box.tolist()
-                w = max(0.0, x2 - x1)  # Ensure width is non-negative
-                h = max(0.0, y2 - y1)  # Ensure height is non-negative
-                # The competition requires the class to be 0 for the single category.
+                w = max(0.0, x2 - x1)
+                h = max(0.0, y2 - y1)
                 parts.append(f"{score.item():.4f} {x1:.2f} {y1:.2f} {w:.2f} {h:.2f} 0")
 
             prediction_string = " ".join(parts)
@@ -186,7 +175,6 @@ def main():
     # --- 4. Generate Submission File ---
     df = pd.DataFrame(results)
     df.to_csv(args.output_path, index=False)
-
     print(f"\n✅ Prediction complete! Submission file saved to {args.output_path}")
     print("Top 5 predictions:")
     print(df.head())
