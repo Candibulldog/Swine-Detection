@@ -163,11 +163,7 @@ def main(args):
             continue
 
         filtered_count = sum(1 for p in preds if p["conf"] >= args.conf_threshold)
-        title = (
-            f"Image ID: {image_id}\n"
-            f"Source: {csv_path.name}\n"
-            f"Detections (conf ≥ {args.conf_threshold}): {filtered_count}"
-        )
+        title = f"Image ID: {image_id}\nSource: {csv_path.name}\nDetections: {filtered_count}"
 
         try:
             fig = draw_detections(img_path, preds, args.conf_threshold, {0: "pig"}, title)
