@@ -20,7 +20,7 @@ class PigDataset(Dataset):
         self,
         data_root: Path,
         frame_ids: Optional[List[int]],
-        is_train: bool = True,
+        is_train: bool,
         annotations_df: Optional[pd.DataFrame] = None,
         cluster_dict: Optional[Dict[int, int]] = None,
         use_cluster_aware_aug: bool = False,
@@ -29,52 +29,51 @@ class PigDataset(Dataset):
         self.is_train = is_train
         self.cluster_dict = cluster_dict if cluster_dict else {}
 
-        data_dir_name = "train" if self.is_train else "test"
+        # 根據是否提供標註來決定是 'train'/'val' 模式還是 'test' 模式
+        # 驗證集的圖片也在 'train/img' 下，所以這個邏輯是正確的
+        data_dir_name = "test" if annotations_df is None else "train"
         self.image_dir = self.data_root / data_dir_name / "img"
 
-        # ✨ 1. 在初始化時，就創建好所有需要的 transform pipelines ✨
-        if self.is_train:
-            self.transforms = {}  # 創建一個字典來存放它們
-            if use_cluster_aware_aug:
-                if not self.cluster_dict:
-                    raise ValueError("Cluster dict must be provided for cluster-aware training.")
-                # 為每個 cluster 創建專用的 pipeline
-                print("INFO: Initializing Dataset with CLUSTER-AWARE transforms.")
-                self.transforms[0] = get_transform(train=True, cluster_id=0, use_cluster_aware=True)
-                self.transforms[1] = get_transform(train=True, cluster_id=1, use_cluster_aware=True)
-                self.transforms[2] = get_transform(train=True, cluster_id=2, use_cluster_aware=True)
-            else:
-                # 創建一個通用的 pipeline
-                print("INFO: Initializing Dataset with UNIFIED transform.")
-                self.transforms["unified"] = get_transform(train=True, use_cluster_aware=False)
-        else:
-            # 驗證/測試集只有一種 pipeline
-            self.transforms = {"val": get_transform(train=False)}
-
-        # ✨ (剩下的 __init__ 邏輯與我們之前修復 bug 時的版本完全一樣) ✨
-        if is_train:
-            # --- Training Mode ---
-            if annotations_df is None:
-                raise ValueError("annotations_df must be provided.")
+        # --- 核心修正: 標註加載邏輯 ---
+        # 只要提供了 annotations_df (無論是訓練集還是驗證集)，就應該加載標註
+        if annotations_df is not None:
             if frame_ids is None:
-                raise ValueError("frame_ids must be provided.")
+                raise ValueError("frame_ids must be provided when annotations_df is given.")
             self.frame_ids = frame_ids
+            # 過濾出當前 split (train/val) 需要的標註
             self.annotations = annotations_df[annotations_df["frame"].isin(self.frame_ids)].copy()
+            # 計算 x2, y2 坐標
             self.annotations["x1"] = self.annotations["bb_left"]
             self.annotations["y1"] = self.annotations["bb_top"]
             self.annotations["x2"] = self.annotations["bb_left"] + self.annotations["bb_width"]
             self.annotations["y2"] = self.annotations["bb_top"] + self.annotations["bb_height"]
             self.frame_annotations = self.annotations.groupby("frame")
         else:
-            # --- Test Mode ---
+            # 這是給 predict.py 使用的真正 Test 模式，沒有任何標註
             if frame_ids is None:
                 self.frame_ids = sorted([int(p.stem) for p in self.image_dir.glob("*.jpg") if p.stem.isdigit()])
             else:
                 self.frame_ids = frame_ids
-            self.annotations = pd.DataFrame(
-                columns=["frame", "bb_left", "bb_top", "bb_width", "bb_height", "x1", "y1", "x2", "y2"]
-            )
+            # 創建一個空的 annotations DataFrame
+            self.annotations = pd.DataFrame(columns=["frame", "x1", "y1", "x2", "y2"])
             self.frame_annotations = self.annotations.groupby("frame")
+
+        # --- Transform 初始化邏輯 (不變) ---
+        # 這個邏輯由 self.is_train 正確控制，決定了是否應用數據增強
+        if self.is_train:
+            self.transforms = {}
+            if use_cluster_aware_aug and self.cluster_dict:
+                print("INFO: Initializing Dataset with CLUSTER-AWARE transforms.")
+                self.transforms[0] = get_transform(train=True, cluster_id=0, use_cluster_aware=True)
+                self.transforms[1] = get_transform(train=True, cluster_id=1, use_cluster_aware=True)
+                self.transforms[2] = get_transform(train=True, cluster_id=2, use_cluster_aware=True)
+            else:
+                print("INFO: Initializing Dataset with UNIFIED transform.")
+                self.transforms["unified"] = get_transform(train=True, use_cluster_aware=False)
+        else:
+            # 驗證/測試集只有一種 pipeline (Resize, Pad, Normalize, ToTensor)
+            print("INFO: Initializing Dataset with VALIDATION/TEST transform.")
+            self.transforms = {"val": get_transform(train=False)}
 
     def __len__(self):
         return len(self.frame_ids)
@@ -86,41 +85,41 @@ class PigDataset(Dataset):
     def __getitem__(self, idx: int):
         frame_id = self.frame_ids[idx]
         img_path = self._get_image_path(frame_id)
-
-        # Load image
         image = Image.open(img_path).convert("RGB")
 
         target = {"image_id": torch.tensor([frame_id])}
 
-        if self.is_train:
-            # Get annotations for this frame
-            if frame_id in self.frame_annotations.groups:
-                frame_data = self.frame_annotations.get_group(frame_id)
-                boxes = frame_data[["x1", "y1", "x2", "y2"]].values
-                labels = torch.ones(len(boxes), dtype=torch.int64)  # All class 1 (pig)
-                areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+        # --- 核心修正: Target 字典填充 ---
+        # 移除 is_train 判斷，確保驗證集也能拿到含 'boxes' 的 target 字典
+        if frame_id in self.frame_annotations.groups:
+            frame_data = self.frame_annotations.get_group(frame_id)
+            boxes = frame_data[["x1", "y1", "x2", "y2"]].values
+            labels = torch.ones(len(boxes), dtype=torch.int64)
+            areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
 
-                valid_indices = areas > 0
-                boxes = boxes[valid_indices]
-                labels = labels[valid_indices]
-                areas = areas[valid_indices]
+            # 過濾掉無效的 boxes
+            valid_indices = areas > 0
+            boxes = boxes[valid_indices]
+            labels = labels[valid_indices]
+            areas = areas[valid_indices]
 
-                target["boxes"] = torch.as_tensor(boxes, dtype=torch.float32)
-                target["labels"] = labels
-                target["area"] = torch.as_tensor(areas, dtype=torch.float32)
-                target["iscrowd"] = torch.zeros(len(boxes), dtype=torch.int64)
-            else:
-                # No annotations for this frame (should be rare after filtering)
-                target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
-                target["labels"] = torch.empty((0,), dtype=torch.int64)
-                target["area"] = torch.empty((0,), dtype=torch.float32)
-                target["iscrowd"] = torch.empty((0,), dtype=torch.int64)
+            target["boxes"] = torch.as_tensor(boxes, dtype=torch.float32)
+            target["labels"] = labels
+            target["area"] = torch.as_tensor(areas, dtype=torch.float32)
+            target["iscrowd"] = torch.zeros(len(boxes), dtype=torch.int64)
+        else:
+            # 對於沒有標註的圖片 (train 或 val)，都提供空的 tensors
+            target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
+            target["labels"] = torch.empty((0,), dtype=torch.int64)
+            target["area"] = torch.empty((0,), dtype=torch.float32)
+            target["iscrowd"] = torch.empty((0,), dtype=torch.int64)
 
-        # 🆕 Apply cluster-aware transforms if enabled
+        # --- Transform 應用邏輯 (不變) ---
+        # 這裡的 is_train 判斷是正確且必須的，它決定了數據是否被增強
         transform_pipeline = None
         if self.is_train:
             if 0 in self.transforms:  # 檢查是否是 Cluster-Aware 模式
-                cluster_id = self.cluster_dict.get(frame_id, 0)  # 默認 fallback 到 cluster 0
+                cluster_id = self.cluster_dict.get(frame_id, 0)
                 transform_pipeline = self.transforms[cluster_id]
             else:  # Unified 模式
                 transform_pipeline = self.transforms["unified"]

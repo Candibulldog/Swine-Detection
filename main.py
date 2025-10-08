@@ -26,7 +26,6 @@ USER_DEFAULTS = {
     # --- 路徑設定 ---
     "data_root": Path("./data"),
     "output_dir": Path("./models"),
-    # submission_path 將在 main 函式中動態生成，這裡保留一個佔位符
     "submission_path": None,
 }
 # ===================================================================
