@@ -80,8 +80,7 @@ def main():
 
     # 如果使用者沒有從命令列手動指定 submission_path，則根據 seed 動態生成
     if args.submission_path is None:
-        aug_tag = "cluster_aware" if args.use_cluster_aware else "unified"
-        args.submission_path = submissions_dir / f"submission_seed_{args.seed}_{aug_tag}.csv"
+        args.submission_path = submissions_dir / f"submission_seed_{args.seed}.csv"
 
     # 建立模型輸出路徑
     args.output_dir.mkdir(exist_ok=True)

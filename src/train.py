@@ -19,7 +19,6 @@ from torch.utils.data import DataLoader
 from src.dataset import PigDataset
 from src.engine import evaluate, train_one_epoch
 from src.model import create_model
-from src.transforms import get_transform
 from src.utils import collate_fn
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -72,14 +71,14 @@ def main():
     set_seed(args.seed)
     args.output_dir.mkdir(exist_ok=True)
 
-    config_filename = f"config_{args.backbone}_seed_{args.seed}.json"
+    config_filename = f"config_seed_{args.seed}.json"
     config_path = args.output_dir / config_filename
     args_dict = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
     with open(config_path, "w") as f:
         json.dump(args_dict, f, indent=4)
     print(f"✅ Experiment configuration saved to {config_path}")
 
-    log_filename = f"training_log_{args.backbone}_seed_{args.seed}.csv"
+    log_filename = f"training_log_seed_{args.seed}.csv"
     log_path = args.output_dir / log_filename
 
     print(f"🎯 DEVICE: {DEVICE}")
@@ -127,25 +126,22 @@ def main():
         train_frames = valid_frames[:split_point]
         val_frames = valid_frames[split_point:]
 
-    train_transform = get_transform(train=True, use_cluster_aware=args.use_cluster_aware)
-    val_transform = get_transform(train=False)
-
+    print("INFO: Creating training dataset...")
     train_dataset = PigDataset(
         annotations_df=full_annotations,
         data_root=args.data_root,
         frame_ids=train_frames,
         is_train=True,
-        transforms=train_transform,
         cluster_dict=cluster_dict,
         use_cluster_aware_aug=args.use_cluster_aware,
     )
 
+    print("INFO: Creating validation dataset...")
     val_dataset = PigDataset(
         annotations_df=full_annotations,
         data_root=args.data_root,
         frame_ids=val_frames,
         is_train=True,
-        transforms=val_transform,
         cluster_dict=cluster_dict,
         use_cluster_aware_aug=False,
     )
@@ -186,6 +182,9 @@ def main():
 
     # 🔥 KEY CHANGE: Adjusted warmup for lower learning rate
     warmup_epochs = 10
+    main_scheduler_epochs = args.epochs - warmup_epochs
+    if main_scheduler_epochs <= 0:
+        raise ValueError(f"Total epochs ({args.epochs}) must be greater than warmup epochs ({warmup_epochs}).")
     warmup_scheduler = LinearLR(
         optimizer,
         start_factor=0.1,  # Changed from 0.01 to 0.1
@@ -194,7 +193,7 @@ def main():
 
     main_scheduler = CosineAnnealingLR(
         optimizer,
-        T_max=args.epochs - warmup_epochs,
+        T_max=main_scheduler_epochs,
         eta_min=1e-6,  # Added minimum learning rate
     )
 
@@ -202,7 +201,7 @@ def main():
 
     # --- Training Loop ---
     best_map = -1.0
-    best_model_filename = f"best_model_{args.backbone}_seed_{args.seed}.pth"
+    best_model_filename = f"best_model_seed_{args.seed}.pth"
     best_path = args.output_dir / best_model_filename
 
     checkpoint_epochs = set(args.checkpoint_epochs)
@@ -267,7 +266,7 @@ def main():
 
         if (epoch + 1) in checkpoint_epochs:
             if best_path.exists():
-                checkpoint_path = args.output_dir / f"best_model_{args.backbone}_seed_{args.seed}_epoch_{epoch + 1}.pth"
+                checkpoint_path = args.output_dir / f"best_model_seed_{args.seed}_epoch_{epoch + 1}.pth"
                 shutil.copy2(best_path, checkpoint_path)
                 print(f"💾 Checkpoint saved: {checkpoint_path}")
 

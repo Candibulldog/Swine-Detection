@@ -1,67 +1,87 @@
 # src/dataset.py - Cluster-Aware Version
 
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+from src.transforms import get_transform
+
 
 class PigDataset(Dataset):
     """
-    Cluster-aware dataset for pig detection.
+    Final cluster-aware dataset that correctly uses the transform factory.
     """
 
     def __init__(
         self,
-        annotations_df: pd.DataFrame,
         data_root: Path,
-        frame_ids: list,
+        frame_ids: Optional[List[int]],
         is_train: bool = True,
-        transforms=None,
-        cluster_dict: Optional[dict] = None,
-        use_cluster_aware_aug: bool = True,
+        annotations_df: Optional[pd.DataFrame] = None,
+        cluster_dict: Optional[Dict[int, int]] = None,
+        use_cluster_aware_aug: bool = False,
     ):
-        """
-        Args:
-            data_root: Root directory containing train/test folders
-            frame_ids: List of frame IDs to include in this dataset
-            is_train: Whether this is training or test dataset
-            transforms: Transformation function/object
-            cluster_dict: Dictionary mapping frame_id -> cluster_id
-            use_cluster_aware_aug: Whether to use cluster-specific augmentation
-        """
         self.data_root = Path(data_root)
-        self.frame_ids = frame_ids
         self.is_train = is_train
-        self.transforms = transforms
         self.cluster_dict = cluster_dict if cluster_dict else {}
-        self.use_cluster_aware_aug = use_cluster_aware_aug
 
-        # Load ground truth if training
+        data_dir_name = "train" if self.is_train else "test"
+        self.image_dir = self.data_root / data_dir_name / "img"
+
+        # ✨ 1. 在初始化時，就創建好所有需要的 transform pipelines ✨
+        if self.is_train:
+            self.transforms = {}  # 創建一個字典來存放它們
+            if use_cluster_aware_aug:
+                if not self.cluster_dict:
+                    raise ValueError("Cluster dict must be provided for cluster-aware training.")
+                # 為每個 cluster 創建專用的 pipeline
+                print("INFO: Initializing Dataset with CLUSTER-AWARE transforms.")
+                self.transforms[0] = get_transform(train=True, cluster_id=0, use_cluster_aware=True)
+                self.transforms[1] = get_transform(train=True, cluster_id=1, use_cluster_aware=True)
+                self.transforms[2] = get_transform(train=True, cluster_id=2, use_cluster_aware=True)
+            else:
+                # 創建一個通用的 pipeline
+                print("INFO: Initializing Dataset with UNIFIED transform.")
+                self.transforms["unified"] = get_transform(train=True, use_cluster_aware=False)
+        else:
+            # 驗證/測試集只有一種 pipeline
+            self.transforms = {"val": get_transform(train=False)}
+
+        # ✨ (剩下的 __init__ 邏輯與我們之前修復 bug 時的版本完全一樣) ✨
         if is_train:
-            self.annotations = annotations_df[annotations_df["frame"].isin(frame_ids)].copy()
-
-            # Convert to (x1, y1, x2, y2) format
+            # --- Training Mode ---
+            if annotations_df is None:
+                raise ValueError("annotations_df must be provided.")
+            if frame_ids is None:
+                raise ValueError("frame_ids must be provided.")
+            self.frame_ids = frame_ids
+            self.annotations = annotations_df[annotations_df["frame"].isin(self.frame_ids)].copy()
             self.annotations["x1"] = self.annotations["bb_left"]
             self.annotations["y1"] = self.annotations["bb_top"]
             self.annotations["x2"] = self.annotations["bb_left"] + self.annotations["bb_width"]
             self.annotations["y2"] = self.annotations["bb_top"] + self.annotations["bb_height"]
-
-            # Group by frame for efficient lookup
+            self.frame_annotations = self.annotations.groupby("frame")
+        else:
+            # --- Test Mode ---
+            if frame_ids is None:
+                self.frame_ids = sorted([int(p.stem) for p in self.image_dir.glob("*.jpg") if p.stem.isdigit()])
+            else:
+                self.frame_ids = frame_ids
+            self.annotations = pd.DataFrame(
+                columns=["frame", "bb_left", "bb_top", "bb_width", "bb_height", "x1", "y1", "x2", "y2"]
+            )
             self.frame_annotations = self.annotations.groupby("frame")
 
     def __len__(self):
         return len(self.frame_ids)
 
     def _get_image_path(self, frame_id: int) -> Path:
-        """Get the path to an image file."""
-        if self.is_train:
-            return self.data_root / "train" / "img" / f"{frame_id}.jpg"
-        else:
-            return self.data_root / "test" / "img" / f"{frame_id}.jpg"
+        filename = f"{frame_id:08d}.jpg"
+        return self.image_dir / filename
 
     def __getitem__(self, idx: int):
         frame_id = self.frame_ids[idx]
@@ -78,26 +98,36 @@ class PigDataset(Dataset):
                 frame_data = self.frame_annotations.get_group(frame_id)
                 boxes = frame_data[["x1", "y1", "x2", "y2"]].values
                 labels = torch.ones(len(boxes), dtype=torch.int64)  # All class 1 (pig)
+                areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+
+                valid_indices = areas > 0
+                boxes = boxes[valid_indices]
+                labels = labels[valid_indices]
+                areas = areas[valid_indices]
 
                 target["boxes"] = torch.as_tensor(boxes, dtype=torch.float32)
                 target["labels"] = labels
+                target["area"] = torch.as_tensor(areas, dtype=torch.float32)
+                target["iscrowd"] = torch.zeros(len(boxes), dtype=torch.int64)
             else:
                 # No annotations for this frame (should be rare after filtering)
                 target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
                 target["labels"] = torch.empty((0,), dtype=torch.int64)
+                target["area"] = torch.empty((0,), dtype=torch.float32)
+                target["iscrowd"] = torch.empty((0,), dtype=torch.int64)
 
         # 🆕 Apply cluster-aware transforms if enabled
-        if self.transforms:
-            if self.use_cluster_aware_aug and hasattr(self.transforms, "__call__"):
-                cluster_id = self.cluster_dict.get(frame_id, -1)
-                # Check if transform supports cluster_id parameter
-                try:
-                    image, target = self.transforms(image, target, cluster_id=cluster_id)
-                except TypeError:
-                    # Fallback to regular transforms
-                    image, target = self.transforms(image, target)
-            else:
-                image, target = self.transforms(image, target)
+        transform_pipeline = None
+        if self.is_train:
+            if 0 in self.transforms:  # 檢查是否是 Cluster-Aware 模式
+                cluster_id = self.cluster_dict.get(frame_id, 0)  # 默認 fallback 到 cluster 0
+                transform_pipeline = self.transforms[cluster_id]
+            else:  # Unified 模式
+                transform_pipeline = self.transforms["unified"]
+        else:  # Validation/Test 模式
+            transform_pipeline = self.transforms["val"]
+
+        image, target = transform_pipeline(image, target)
 
         return image, target
 

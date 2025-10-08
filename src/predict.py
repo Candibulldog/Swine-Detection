@@ -16,7 +16,7 @@ from src.model import create_model
 
 # ✨ 1. 導入你的 soft_nms 模塊
 from src.soft_nms import soft_nms
-from src.transforms import IMG_SIZE, get_transform
+from src.transforms import IMG_SIZE
 from src.utils import collate_fn
 
 # Set the device for computation. Prefers CUDA if available.
@@ -81,7 +81,11 @@ def main():
     args = parser.parse_args()
 
     # --- 1. Prepare Data ---
-    test_dataset = PigDataset(args.data_root, frame_ids=None, is_train=False, transforms=get_transform(train=False))
+    test_dataset = PigDataset(
+        data_root=args.data_root,
+        frame_ids=None,
+        is_train=False,
+    )
     num_workers = min(int(os.cpu_count() * 0.75), 12)
     g = torch.Generator().manual_seed(args.seed)
     test_loader = DataLoader(
