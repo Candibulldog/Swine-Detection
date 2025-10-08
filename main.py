@@ -15,11 +15,12 @@ USER_DEFAULTS = {
     "batch_size": 8,
     "lr": 0.0001,
     "seed": None,
-    "checkpoint_epochs": [100, 120, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250],
+    "checkpoint_epochs": [100, 120, 150, 160, 170, 180, 190, 200],
     "conf_threshold": 0.3,
+    "use_cluster_aware": True,
     # --- 預測後處理優化 ---
-    "use_soft_nms": True,
-    "nms_iou_threshold": 0.75,
+    "use_soft_nms": False,
+    "nms_iou_threshold": 0.8,
     "soft_nms_sigma": 0.5,
     "soft_nms_min_score": 0.3,
     # --- 路徑設定 ---
@@ -79,7 +80,8 @@ def main():
 
     # 如果使用者沒有從命令列手動指定 submission_path，則根據 seed 動態生成
     if args.submission_path is None:
-        args.submission_path = submissions_dir / f"submission_seed_{args.seed}_anchor_v2.csv"
+        aug_tag = "cluster_aware" if args.use_cluster_aware else "unified"
+        args.submission_path = submissions_dir / f"submission_seed_{args.seed}_{aug_tag}.csv"
 
     # 建立模型輸出路徑
     args.output_dir.mkdir(exist_ok=True)
@@ -113,6 +115,9 @@ def main():
     if args.checkpoint_epochs:
         train_cmd.append("--checkpoint_epochs")
         train_cmd.extend(map(str, args.checkpoint_epochs))
+
+    if args.use_cluster_aware:
+        train_cmd.append("--use_cluster_aware")
 
     run_command(map(str, train_cmd))
     print("✅ 訓練完成。")
