@@ -2,7 +2,6 @@
 import torch.nn as nn
 from torchvision.models import ConvNeXt_Tiny_Weights, convnext_tiny
 from torchvision.models.detection import FasterRCNN
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool
 
@@ -77,12 +76,8 @@ def create_model(num_classes: int):
     # 6. Create the Faster R-CNN model
     model = FasterRCNN(
         backbone_with_fpn,
-        num_classes=91,  # Temporary, will be replaced
+        num_classes=2,
         rpn_anchor_generator=anchor_generator,
     )
-
-    # 7. Replace the box predictor head
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
     return model

@@ -141,7 +141,7 @@ def main():
         annotations_df=full_annotations,
         data_root=args.data_root,
         frame_ids=val_frames,
-        is_train=True,
+        is_train=False,
         cluster_dict=cluster_dict,
         use_cluster_aware_aug=False,
     )

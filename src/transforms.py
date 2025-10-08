@@ -67,11 +67,26 @@ class AlbumentationsTransform:
         transformed = self.transforms(**transform_args)
 
         if "boxes" in target:
-            if len(transformed["bboxes"]) > 0:
-                target["boxes"] = torch.as_tensor(transformed["bboxes"], dtype=torch.float32)
+            new_boxes = torch.as_tensor(transformed["bboxes"], dtype=torch.float32)
+
+            # 確保 new_boxes 不是空的
+            if new_boxes.shape[0] > 0:
+                # 重新賦值 boxes
+                target["boxes"] = new_boxes
+                # 重新賦值 labels
+                target["labels"] = torch.as_tensor(transformed["labels"], dtype=torch.int64)
+
+                # 重新計算 area
+                target["area"] = (new_boxes[:, 2] - new_boxes[:, 0]) * (new_boxes[:, 3] - new_boxes[:, 1])
+
+                # 重新生成 iscrowd，使其長度與新的 boxes 數量匹配
+                target["iscrowd"] = torch.zeros(new_boxes.shape[0], dtype=torch.int64)
             else:
+                # 如果所有 boxes 都被過濾掉了，則清空所有相關欄位
                 target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
-            target["labels"] = torch.as_tensor(transformed["labels"], dtype=torch.int64)
+                target["labels"] = torch.empty((0,), dtype=torch.int64)
+                target["area"] = torch.empty((0,), dtype=torch.float32)
+                target["iscrowd"] = torch.empty((0,), dtype=torch.int64)
 
         return transformed["image"], target
 

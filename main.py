@@ -118,7 +118,7 @@ def main():
     if args.use_cluster_aware:
         train_cmd.append("--use_cluster_aware")
 
-    run_command(map(str, train_cmd))
+    run_command(list(map(str, train_cmd)))
     print("✅ 訓練完成。")
 
     # --- 2. 推論 ---
@@ -156,7 +156,7 @@ def main():
     if args.use_soft_nms:
         predict_cmd.append("--use_soft_nms")
 
-    run_command(map(str, predict_cmd))
+    run_command(list(map(str, predict_cmd)))
     print(f"\n🎉 全部完成！提交檔案已儲存至 {args.submission_path}")
 
 
