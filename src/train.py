@@ -56,7 +56,7 @@ def main():
     parser = argparse.ArgumentParser(description="Pig Detection Training Script (ConvNeXt-Tiny Optimized)")
     parser.add_argument("--data_root", type=Path, default=Path("./data"))
     parser.add_argument("--epochs", type=int, default=50, help="Increased for ConvNeXt (was 30)")
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=8)
     # 🔥 KEY CHANGE: Lower learning rate for ConvNeXt
     parser.add_argument("--lr", type=float, default=0.0001, help="Reduced from 0.005 for ConvNeXt")
     parser.add_argument("--output_dir", type=Path, default=Path("models"))

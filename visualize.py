@@ -128,7 +128,7 @@ def main(args):
 
     # --- 1. Create Output Directory ---
     # ✨ MODIFIED: All visualizations are now saved under a unified './visualizations' directory.
-    base_output_dir = Path("./visualizations/seed_1338308991")
+    base_output_dir = Path("./visualizations/seed_3334463265/soft")
     base_output_dir.mkdir(parents=True, exist_ok=True)
     output_dir_specific = base_output_dir / f"viz_{csv_path.stem}"
     output_dir_specific.mkdir(parents=True, exist_ok=True)
@@ -181,10 +181,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize Object Detection Results")
 
     parser.add_argument("--csv_path", type=str, required=True, help="Path to the submission.csv file to analyze.")
-    parser.add_argument(
-        "--test_dir", type=str, default="/content/data/test/img", help="Directory containing the test images."
-    )
-    parser.add_argument("--conf_threshold", type=float, default=0.5, help="Confidence threshold for visualization.")
+    parser.add_argument("--test_dir", type=str, default="./data/test/img", help="Directory containing the test images.")
+    parser.add_argument("--conf_threshold", type=float, default=0.3, help="Confidence threshold for visualization.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for random sampling.")
 
     # --- Mutually exclusive group for selecting which images to visualize ---

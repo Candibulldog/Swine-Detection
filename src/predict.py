@@ -75,7 +75,7 @@ def main():
 
     # ✨ 2. 添加新的命令行參數 ✨
     parser.add_argument("--use_soft_nms", action="store_true", help="Use Soft-NMS instead of standard NMS.")
-    parser.add_argument("--soft_nms_sigma", type=float, default=0.5, help="Sigma for Gaussian Soft-NMS.")
+    parser.add_argument("--soft_nms_sigma", type=float, default=0.6, help="Sigma for Gaussian Soft-NMS.")
     parser.add_argument("--soft_nms_min_score", type=float, default=0.2, help="Minimum score threshold for Soft-NMS.")
 
     args = parser.parse_args()
