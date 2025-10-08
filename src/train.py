@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from sklearn.model_selection import train_test_split
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader
 
@@ -54,29 +55,31 @@ def filter_annotations(df: pd.DataFrame) -> pd.DataFrame:
 
 def main():
     parser = argparse.ArgumentParser(description="Pig Detection Training Script (ConvNeXt-Tiny Optimized)")
+    parser.add_argument("--use_cluster_aware", action="store_true", help="Enable cluster-aware augmentations.")
     parser.add_argument("--data_root", type=Path, default=Path("./data"))
-    parser.add_argument("--epochs", type=int, default=50, help="Increased for ConvNeXt (was 30)")
-    parser.add_argument("--batch_size", type=int, default=8)
-    # 🔥 KEY CHANGE: Lower learning rate for ConvNeXt
-    parser.add_argument("--lr", type=float, default=0.0001, help="Reduced from 0.005 for ConvNeXt")
+    parser.add_argument("--epochs", type=int, default=120, help="Based on ConvNeXt-Tiny 120-epoch convergence")
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--lr", type=float, default=0.0001, help="Recommend 0.0001 for ConvNeXt")
     parser.add_argument("--output_dir", type=Path, default=Path("models"))
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--checkpoint_epochs", type=int, nargs="+", default=[])
-    # 🆕 NEW: Add backbone type to config
+    parser.add_argument("--checkpoint_epochs", type=int, nargs="+", default=[30, 60, 80, 100, 110])
     parser.add_argument("--backbone", type=str, default="convnext_tiny", help="Backbone architecture")
+    parser.add_argument(
+        "--cluster_file", type=Path, default=Path("./image_clusters.csv"), help="Path to the image cluster CSV file."
+    )
     args = parser.parse_args()
 
     set_seed(args.seed)
     args.output_dir.mkdir(exist_ok=True)
 
-    config_filename = f"config_seed_{args.seed}.json"
+    config_filename = f"config_{args.backbone}_seed_{args.seed}.json"
     config_path = args.output_dir / config_filename
     args_dict = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
     with open(config_path, "w") as f:
         json.dump(args_dict, f, indent=4)
     print(f"✅ Experiment configuration saved to {config_path}")
 
-    log_filename = f"training_log_seed_{args.seed}.csv"
+    log_filename = f"training_log_{args.backbone}_seed_{args.seed}.csv"
     log_path = args.output_dir / log_filename
 
     print(f"🎯 DEVICE: {DEVICE}")
@@ -88,24 +91,64 @@ def main():
     img_dir = args.data_root / "train" / "img"
 
     full_annotations = pd.read_csv(gt_path, header=None, names=["frame", "bb_left", "bb_top", "bb_width", "bb_height"])
-    annotations = filter_annotations(full_annotations)
+    full_annotations = filter_annotations(full_annotations)
 
     existing_files = {int(p.stem) for p in img_dir.glob("*.jpg") if p.stem.isdigit()}
-    annotated_frames = set(map(int, annotations["frame"].unique()))
+    annotated_frames = set(map(int, full_annotations["frame"].unique()))
     valid_frames = sorted(list(existing_files.intersection(annotated_frames)))
 
     if len(valid_frames) < 2:
         raise RuntimeError("Not enough valid images for train/val splits.")
 
-    rng = random.Random(args.seed)
-    rng.shuffle(valid_frames)
-    split_point = int(0.8 * len(valid_frames))
-    train_frames = valid_frames[:split_point]
-    val_frames = valid_frames[split_point:]
+    # Load cluster information for stratified splitting
+    cluster_dict = {}
+    if args.cluster_file.exists():
+        print(f"📊 Loading cluster information from {args.cluster_file}")
+        cluster_df = pd.read_csv(args.cluster_file)
+        cluster_dict = dict(zip(cluster_df["frame_id"], cluster_df["cluster_id"]))
 
-    train_dataset = PigDataset(args.data_root, train_frames, is_train=True, transforms=get_transform(train=True))
-    val_dataset = PigDataset(args.data_root, val_frames, is_train=True, transforms=get_transform(train=False))
+        valid_frames_df = pd.DataFrame(valid_frames, columns=["frame_id"])
+        merged_df = valid_frames_df.merge(cluster_df, on="frame_id", how="inner")
 
+        frames_to_split = merged_df["frame_id"].values
+        strata = merged_df["cluster_id"].values
+
+        train_frames, val_frames, _, _ = train_test_split(
+            frames_to_split, strata, test_size=0.2, random_state=args.seed, stratify=strata
+        )
+        train_frames, val_frames = train_frames.tolist(), val_frames.tolist()
+        print(f"✅ Stratified split complete: Train {len(train_frames)}, Val {len(val_frames)}")
+    else:
+        # Fallback to random split if cluster file not found
+        print("⚠️  No cluster file found, using random split")
+        rng = random.Random(args.seed)
+        rng.shuffle(valid_frames)
+        split_point = int(0.8 * len(valid_frames))
+        train_frames = valid_frames[:split_point]
+        val_frames = valid_frames[split_point:]
+
+    train_transform = get_transform(train=True, use_cluster_aware=args.use_cluster_aware)
+    val_transform = get_transform(train=False)
+
+    train_dataset = PigDataset(
+        annotations_df=full_annotations,
+        data_root=args.data_root,
+        frame_ids=train_frames,
+        is_train=True,
+        transforms=train_transform,
+        cluster_dict=cluster_dict,
+        use_cluster_aware_aug=args.use_cluster_aware,
+    )
+
+    val_dataset = PigDataset(
+        annotations_df=full_annotations,
+        data_root=args.data_root,
+        frame_ids=val_frames,
+        is_train=True,
+        transforms=val_transform,
+        cluster_dict=cluster_dict,
+        use_cluster_aware_aug=False,
+    )
     # --- DataLoaders ---
     num_workers = min(int(os.cpu_count() * 0.75), 12)
     g = torch.Generator().manual_seed(args.seed)
@@ -159,10 +202,7 @@ def main():
 
     # --- Training Loop ---
     best_map = -1.0
-    patience = 20  # 20 epochs 沒有改善就考慮停止
-    epochs_no_improve = 0
-
-    best_model_filename = f"best_model_seed_{args.seed}.pth"
+    best_model_filename = f"best_model_{args.backbone}_seed_{args.seed}.pth"
     best_path = args.output_dir / best_model_filename
 
     checkpoint_epochs = set(args.checkpoint_epochs)
@@ -222,22 +262,12 @@ def main():
         current_map = stats[0]
         if current_map > best_map:
             best_map = current_map
-            epochs_no_improve = 0  # 重置計數器
             torch.save(model.state_dict(), best_path)
             print(f"🎉 New best mAP: {best_map:.4f} at epoch {epoch + 1}")
-        else:
-            epochs_no_improve += 1
-            print(f"⏳ No improvement for {epochs_no_improve} epochs (best: {best_map:.4f})")
-
-            # 早停檢查
-        if epochs_no_improve >= patience:
-            print(f"\n⚠️ Early stopping triggered at epoch {epoch + 1}")
-            print(f"   Best mAP: {best_map:.4f} was at epoch {epoch + 1 - epochs_no_improve}")
-            break
 
         if (epoch + 1) in checkpoint_epochs:
             if best_path.exists():
-                checkpoint_path = args.output_dir / f"best_model_seed_{args.seed}_epoch_{epoch + 1}.pth"
+                checkpoint_path = args.output_dir / f"best_model_{args.backbone}_seed_{args.seed}_epoch_{epoch + 1}.pth"
                 shutil.copy2(best_path, checkpoint_path)
                 print(f"💾 Checkpoint saved: {checkpoint_path}")
 

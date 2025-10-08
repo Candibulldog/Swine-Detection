@@ -11,7 +11,7 @@ from pathlib import Path
 # ===================================================================
 
 USER_DEFAULTS = {
-    "epochs": 250,
+    "epochs": 200,
     "batch_size": 8,
     "lr": 0.0001,
     "seed": None,
