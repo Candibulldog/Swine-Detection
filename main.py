@@ -34,24 +34,14 @@ CONFIG = {
 # ===================================================================
 
 
-def strtobool(val):
-    """convert string to boolean (for argparse)."""
-    val = val.lower()
-    if val in ("y", "yes", "t", "true", "on", "1"):
-        return True
-    elif val in ("n", "no", "f", "false", "off", "0"):
-        return False
-    else:
-        raise argparse.ArgumentTypeError(f"Boolean value expected, got '{val}'")
-
-
 def run_command(cmd_list):
-    """execute a command in subprocess and handle errors."""
+    """Executes a command and exits if it fails."""
     # Convert all parts of the command to string for subprocess
     cmd_str_list = [str(item) for item in cmd_list]
+
     print(f"\n▶️  Executing: {' '.join(cmd_str_list)}")
     try:
-        subprocess.run(cmd_list, check=True)
+        subprocess.run(cmd_str_list, check=True)
     except subprocess.CalledProcessError as e:
         print(f"❌ Command failed with exit code {e.returncode}:\n   {' '.join(e.cmd)}")
         sys.exit(1)
