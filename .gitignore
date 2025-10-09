@@ -228,6 +228,7 @@ checkpoints/
 outputs/
 results/
 submissions/
+image_clusters.csv
 
 # 3. Log files and reports
 #    Log files are machine-specific and change frequently.

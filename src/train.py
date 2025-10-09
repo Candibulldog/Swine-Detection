@@ -57,16 +57,19 @@ def main():
     parser.add_argument("--use_cluster_aware", action="store_true", help="Enable cluster-aware augmentations.")
     parser.add_argument("--data_root", type=Path, default=Path("./data"))
     parser.add_argument("--epochs", type=int, default=120, help="Based on ConvNeXt-Tiny 120-epoch convergence")
-    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=0.0001, help="Recommend 0.0001 for ConvNeXt")
     parser.add_argument("--output_dir", type=Path, default=Path("models"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--checkpoint_epochs", type=int, nargs="+", default=[60, 80, 100, 120])
     parser.add_argument("--backbone", type=str, default="convnext_tiny", help="Backbone architecture")
     parser.add_argument(
-        "--cluster_file", type=Path, default=Path("./image_clusters.csv"), help="Path to the image cluster CSV file."
+        "--cluster_csv_path",
+        type=Path,
+        default=Path("./image_clusters.csv"),
+        help="Path to the image cluster CSV file.",
     )
-    parser.add_argument("--accumulation_steps", type=int, default=4, help="Number of steps to accumulate gradients.")
+    parser.add_argument("--accumulation_steps", type=int, default=2, help="Number of steps to accumulate gradients.")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -102,9 +105,9 @@ def main():
 
     # Load cluster information for stratified splitting
     cluster_dict = {}
-    if args.cluster_file.exists():
-        print(f"📊 Loading cluster information from {args.cluster_file}")
-        cluster_df = pd.read_csv(args.cluster_file)
+    if args.cluster_csv_path.exists():
+        print(f"📊 Loading cluster information from {args.cluster_csv_path}")
+        cluster_df = pd.read_csv(args.cluster_csv_path)
         cluster_dict = dict(zip(cluster_df["frame_id"], cluster_df["cluster_id"], strict=False))
 
         valid_frames_df = pd.DataFrame(valid_frames, columns=["frame_id"])

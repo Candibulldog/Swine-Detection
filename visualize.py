@@ -115,7 +115,7 @@ def get_image_ids_to_visualize(df: pd.DataFrame, args: argparse.Namespace) -> li
 
     # Default behavior: use a predefined set of representative IDs.
     print("ℹ️ No selection mode specified. Using default fixed IDs.")
-    return ["25", "458", "615", "950", "1215", "1255"]
+    return ["25", "615", "950", "1255", "1805", "1864"]
 
 
 def main(args):

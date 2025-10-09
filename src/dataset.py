@@ -1,4 +1,4 @@
-# src/dataset.py - Cluster-Aware Version
+# src/dataset.py
 
 from pathlib import Path
 
@@ -12,119 +12,125 @@ from src.transforms import get_transform
 
 class PigDataset(Dataset):
     """
-    Final cluster-aware dataset that correctly uses the transform factory.
+    A comprehensive PyTorch Dataset for the pig detection task.
+    It supports training, validation, and test modes, and features
+    optional cluster-aware data augmentation for training.
     """
 
     def __init__(
         self,
         data_root: Path,
-        frame_ids: list[int] | None,
         is_train: bool,
         annotations_df: pd.DataFrame | None = None,
+        frame_ids: list[int] | None = None,
         cluster_dict: dict[int, int] | None = None,
         use_cluster_aware_aug: bool = False,
     ):
         self.data_root = Path(data_root)
         self.is_train = is_train
-        self.cluster_dict = cluster_dict if cluster_dict else {}
 
-        # 根據是否提供標註來決定是 'train'/'val' 模式還是 'test' 模式
-        # 驗證集的圖片也在 'train/img' 下，所以這個邏輯是正確的
-        data_dir_name = "test" if annotations_df is None else "train"
+        # Determine the image directory based on the mode (train/val vs. test)
+        data_dir_name = "train" if annotations_df is not None else "test"
         self.image_dir = self.data_root / data_dir_name / "img"
 
-        # --- 核心修正: 標註加載邏輯 ---
-        # 只要提供了 annotations_df (無論是訓練集還是驗證集)，就應該加載標註
-        if annotations_df is not None:
-            if frame_ids is None:
-                raise ValueError("frame_ids must be provided when annotations_df is given.")
+        # If frame_ids are not provided in test mode, scan the directory.
+        if frame_ids is None and annotations_df is None:
+            self.frame_ids = sorted([int(p.stem) for p in self.image_dir.glob("*.jpg") if p.stem.isdigit()])
+        elif frame_ids is not None:
             self.frame_ids = frame_ids
-            # 過濾出當前 split (train/val) 需要的標註
-            self.annotations = annotations_df[annotations_df["frame"].isin(self.frame_ids)].copy()
-            # 計算 x2, y2 坐標
-            self.annotations["x1"] = self.annotations["bb_left"]
-            self.annotations["y1"] = self.annotations["bb_top"]
-            self.annotations["x2"] = self.annotations["bb_left"] + self.annotations["bb_width"]
-            self.annotations["y2"] = self.annotations["bb_top"] + self.annotations["bb_height"]
-            self.frame_annotations = self.annotations.groupby("frame")
         else:
-            # 這是給 predict.py 使用的真正 Test 模式，沒有任何標註
-            if frame_ids is None:
-                self.frame_ids = sorted([int(p.stem) for p in self.image_dir.glob("*.jpg") if p.stem.isdigit()])
-            else:
-                self.frame_ids = frame_ids
-            # 創建一個空的 annotations DataFrame
-            self.annotations = pd.DataFrame(columns=["frame", "x1", "y1", "x2", "y2"])
-            self.frame_annotations = self.annotations.groupby("frame")
+            raise ValueError("`frame_ids` must be provided for train/val modes.")
 
-        # --- Transform 初始化邏輯 (不變) ---
-        # 這個邏輯由 self.is_train 正確控制，決定了是否應用數據增強
+        # Pre-process annotations for efficient lookups.
+        self.annotations_map = self._prepare_annotations(annotations_df, self.frame_ids)
+
+        # Initialize the appropriate transformation pipelines.
+        self.transforms = self._initialize_transforms(cluster_dict, use_cluster_aware_aug)
+
+    def _prepare_annotations(self, df: pd.DataFrame | None, frame_ids: list[int]) -> dict:
+        """
+        Processes the annotations DataFrame into a dictionary for fast access in __getitem__.
+        Returns a dictionary mapping `frame_id -> annotations_for_that_frame`.
+        """
+        if df is None:
+            return {}
+
+        # Filter for relevant frames and calculate derived columns.
+        df_filtered = df[df["frame"].isin(frame_ids)].copy()
+        df_filtered["x2"] = df_filtered["bb_left"] + df_filtered["bb_width"]
+        df_filtered["y2"] = df_filtered["bb_top"] + df_filtered["bb_height"]
+
+        # Group by frame and convert to a dictionary for O(1) lookup.
+        return {
+            frame: frame_df[["bb_left", "bb_top", "x2", "y2"]].values
+            for frame, frame_df in df_filtered.groupby("frame")
+        }
+
+    def _initialize_transforms(self, cluster_dict: dict | None, use_cluster_aware: bool):
+        """
+        Initializes and returns the correct transformation pipeline(s) in an extensible way.
+        """
         if self.is_train:
-            self.transforms = {}
-            if use_cluster_aware_aug and self.cluster_dict:
-                print("INFO: Initializing Dataset with CLUSTER-AWARE transforms.")
-                self.transforms[0] = get_transform(train=True, cluster_id=0, use_cluster_aware=True)
-                self.transforms[1] = get_transform(train=True, cluster_id=1, use_cluster_aware=True)
-                self.transforms[2] = get_transform(train=True, cluster_id=2, use_cluster_aware=True)
+            if use_cluster_aware and cluster_dict:
+                unique_cluster_ids = sorted(list(set(cluster_dict.values())))
+                print(
+                    f"INFO: Initializing CLUSTER-AWARE transforms for {len(unique_cluster_ids)} unique clusters: {unique_cluster_ids}"
+                )
+
+                self.cluster_dict = cluster_dict
+                return {
+                    cluster_id: get_transform(train=True, cluster_id=cluster_id, use_cluster_aware=True)
+                    for cluster_id in unique_cluster_ids
+                }
             else:
                 print("INFO: Initializing Dataset with UNIFIED transform.")
-                self.transforms["unified"] = get_transform(train=True, use_cluster_aware=False)
+                self.cluster_dict = {}
+                return {"unified": get_transform(train=True, use_cluster_aware=False)}
         else:
-            # 驗證/測試集只有一種 pipeline (Resize, Pad, Normalize, ToTensor)
             print("INFO: Initializing Dataset with VALIDATION/TEST transform.")
-            self.transforms = {"val": get_transform(train=False)}
+            self.cluster_dict = {}
+            return {"val_test": get_transform(train=False)}
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.frame_ids)
-
-    def _get_image_path(self, frame_id: int) -> Path:
-        filename = f"{frame_id:08d}.jpg"
-        return self.image_dir / filename
 
     def __getitem__(self, idx: int):
         frame_id = self.frame_ids[idx]
-        img_path = self._get_image_path(frame_id)
-        image = Image.open(img_path).convert("RGB")
+        image_path = self.image_dir / f"{frame_id:08d}.jpg"
+        image = Image.open(image_path).convert("RGB")
 
+        # Prepare the target dictionary.
         target = {"image_id": torch.tensor([frame_id])}
+        boxes = self.annotations_map.get(frame_id)
 
-        # --- 核心修正: Target 字典填充 ---
-        # 移除 is_train 判斷，確保驗證集也能拿到含 'boxes' 的 target 字典
-        if frame_id in self.frame_annotations.groups:
-            frame_data = self.frame_annotations.get_group(frame_id)
-            boxes = frame_data[["x1", "y1", "x2", "y2"]].values
-            labels = torch.ones(len(boxes), dtype=torch.int64)
+        if boxes is not None and len(boxes) > 0:
+            # This logic is for train/val sets which have annotations.
             areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
 
-            # 過濾掉無效的 boxes
+            # Filter out invalid boxes with zero or negative area.
             valid_indices = areas > 0
             boxes = boxes[valid_indices]
-            labels = labels[valid_indices]
             areas = areas[valid_indices]
 
             target["boxes"] = torch.as_tensor(boxes, dtype=torch.float32)
-            target["labels"] = labels
+            target["labels"] = torch.ones(len(boxes), dtype=torch.int64)  # All pigs are class 1
             target["area"] = torch.as_tensor(areas, dtype=torch.float32)
             target["iscrowd"] = torch.zeros(len(boxes), dtype=torch.int64)
         else:
-            # 對於沒有標註的圖片 (train 或 val)，都提供空的 tensors
+            # This logic handles the test set and any train/val images without annotations.
             target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
             target["labels"] = torch.empty((0,), dtype=torch.int64)
             target["area"] = torch.empty((0,), dtype=torch.float32)
             target["iscrowd"] = torch.empty((0,), dtype=torch.int64)
 
-        # --- Transform 應用邏輯 (不變) ---
-        # 這裡的 is_train 判斷是正確且必須的，它決定了數據是否被增強
-        transform_pipeline = None
+        # Apply the appropriate transformation pipeline.
         if self.is_train:
-            if 0 in self.transforms:  # 檢查是否是 Cluster-Aware 模式
-                cluster_id = self.cluster_dict.get(frame_id, 0)
-                transform_pipeline = self.transforms[cluster_id]
-            else:  # Unified 模式
-                transform_pipeline = self.transforms["unified"]
-        else:  # Validation/Test 模式
-            transform_pipeline = self.transforms["val"]
-
-        image, target = transform_pipeline(image, target)
+            if "unified" in self.transforms:
+                image, target = self.transforms["unified"](image, target)
+            else:
+                cluster_id = self.cluster_dict.get(frame_id, 0)  # Default to cluster 0 if missing
+                image, target = self.transforms[cluster_id](image, target)
+        else:
+            image, target = self.transforms["val_test"](image, target)
 
         return image, target

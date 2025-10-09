@@ -271,17 +271,15 @@ def get_transform(train: bool, cluster_id: int = -1, use_cluster_aware: bool = F
         return AlbumentationsTransform(_get_base_transforms())
 
     # Training: Choose strategy
-    if use_cluster_aware and cluster_id >= 0:
-        # Cluster-specific augmentation
-        if cluster_id == 0:
-            transforms = _get_color_cluster_transforms()
-        elif cluster_id == 1:
-            transforms = _get_infrared_cluster_transforms()
-        elif cluster_id == 2:
-            transforms = _get_nightvision_cluster_transforms()
-        else:
-            # Fallback to unified
-            transforms = _get_unified_train_transforms()
+    if use_cluster_aware:
+        transform_builders = {
+            0: _get_color_cluster_transforms,
+            1: _get_infrared_cluster_transforms,
+            2: _get_nightvision_cluster_transforms,
+        }
+        # .get() provide fallback to unified if unknown cluster_id
+        builder = transform_builders.get(cluster_id, _get_unified_train_transforms)
+        transforms = builder()
     else:
         # Default: Unified transforms (works well for all clusters)
         transforms = _get_unified_train_transforms()

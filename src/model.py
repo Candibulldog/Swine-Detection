@@ -1,6 +1,6 @@
 # src/model.py
 import torch.nn as nn
-from torchvision.models import ConvNeXt_Tiny_Weights, convnext_tiny
+from torchvision.models import ConvNeXt_Small_Weights, convnext_small
 from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool
@@ -36,7 +36,7 @@ def create_model(num_classes: int):
     print("✅ INFO: Creating model with ConvNeXt-Tiny backbone.")
 
     # 1. Load ConvNeXt-Tiny backbone with ImageNet pre-trained weights
-    convnext_backbone = convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT)
+    convnext_backbone = convnext_small(weights=ConvNeXt_Small_Weights.DEFAULT)
 
     # 2. Create a feature extractor to get intermediate features
     class ConvNeXtFeatureExtractor(nn.Module):
@@ -76,7 +76,7 @@ def create_model(num_classes: int):
     # 6. Create the Faster R-CNN model
     model = FasterRCNN(
         backbone_with_fpn,
-        num_classes=2,
+        num_classes=num_classes,
         rpn_anchor_generator=anchor_generator,
     )
 
