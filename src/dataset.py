@@ -129,35 +129,3 @@ class PigDataset(Dataset):
         image, target = transform_pipeline(image, target)
 
         return image, target
-
-
-def create_cluster_dict(data_root: Path) -> dict:
-    """
-    Load cluster information from image_clusters.txt.
-
-    Returns:
-        Dictionary mapping frame_id -> cluster_id
-    """
-    cluster_path = data_root / "train" / "image_clusters.txt"
-    if not cluster_path.exists():
-        print(f"⚠️  Cluster file not found at {cluster_path}")
-        return {}
-
-    try:
-        cluster_df = pd.read_csv(cluster_path, sep="\t")
-        cluster_dict = dict(zip(cluster_df["frame_id"], cluster_df["cluster_id"]))
-
-        # Print cluster statistics
-        from collections import Counter
-
-        cluster_counts = Counter(cluster_dict.values())
-        print("📊 Cluster distribution:")
-        for cluster_id in sorted(cluster_counts.keys()):
-            count = cluster_counts[cluster_id]
-            percentage = count / len(cluster_dict) * 100
-            print(f"   Cluster {cluster_id}: {count} images ({percentage:.1f}%)")
-
-        return cluster_dict
-    except Exception as e:
-        print(f"❌ Error loading cluster file: {e}")
-        return {}

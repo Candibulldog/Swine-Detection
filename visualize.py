@@ -118,7 +118,7 @@ def get_image_ids_to_visualize(df: pd.DataFrame, args: argparse.Namespace) -> li
 
     # Default behavior: use a predefined set of representative IDs.
     print("ℹ️ No selection mode specified. Using default fixed IDs.")
-    return ["1000", "1859", "832", "664", "1", "817", "1360", "1258"]
+    return ["25", "458", "615", "950", "1215", "1255"]
 
 
 def main(args):
@@ -128,7 +128,7 @@ def main(args):
 
     # --- 1. Create Output Directory ---
     # ✨ MODIFIED: All visualizations are now saved under a unified './visualizations' directory.
-    base_output_dir = Path("./visualizations/seed_3334463265/soft")
+    base_output_dir = Path("./visualizations/seed_126171867/")
     base_output_dir.mkdir(parents=True, exist_ok=True)
     output_dir_specific = base_output_dir / f"viz_{csv_path.stem}"
     output_dir_specific.mkdir(parents=True, exist_ok=True)
