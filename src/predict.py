@@ -66,17 +66,20 @@ def main():
     parser.add_argument(
         "--output_path", type=Path, default=Path("submission.csv"), help="Path to save the submission CSV file."
     )
-    parser.add_argument("--conf_threshold", type=float, default=0.3, help="Confidence score threshold for predictions.")
+    parser.add_argument(
+        "--conf_threshold", type=float, default=0.01, help="Confidence score threshold for predictions."
+    )
     parser.add_argument("--batch_size", type=int, default=24, help="Batch size for inference.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
     parser.add_argument(
-        "--nms_iou_threshold", type=float, default=0.75, help="IoU threshold for Non-Maximum Suppression."
+        "--nms_iou_threshold", type=float, default=0.9, help="IoU threshold for Non-Maximum Suppression."
     )
 
     # ✨ 2. 添加新的命令行參數 ✨
     parser.add_argument("--use_soft_nms", action="store_true", help="Use Soft-NMS instead of standard NMS.")
     parser.add_argument("--soft_nms_sigma", type=float, default=0.6, help="Sigma for Gaussian Soft-NMS.")
     parser.add_argument("--soft_nms_min_score", type=float, default=0.2, help="Minimum score threshold for Soft-NMS.")
+    parser.add_argument("--no-nms", action="store_true", help="Completely disable NMS/Soft-NMS for raw submission.")
 
     args = parser.parse_args()
 
@@ -110,7 +113,13 @@ def main():
     results = []
 
     # ✨ 更新打印信息 ✨
-    nms_method_str = "Soft-NMS" if args.use_soft_nms else "Standard NMS"
+    if args.no_nms:
+        nms_method_str = "NO NMS (Raw Output)"
+    elif args.use_soft_nms:
+        nms_method_str = "Soft-NMS"
+    else:
+        nms_method_str = "Standard NMS"
+
     print(
         f"--- Predicting on test set (NMS Method: {nms_method_str}) ---\n"
         f"(Confidence Threshold: {args.conf_threshold}) and (NMS IoU Threshold: {args.nms_iou_threshold})"
@@ -141,24 +150,25 @@ def main():
             scores = scores[conf_indices]
 
             # ✨ 3. 根據參數選擇 NMS 算法 ✨
-            if args.use_soft_nms:
-                # 使用 Soft-NMS。它返回要保留的框的索引和它們被更新後的分數。
-                keep_indices, updated_scores = soft_nms(
-                    boxes,
-                    scores,
-                    iou_threshold=args.nms_iou_threshold,
-                    sigma=args.soft_nms_sigma,
-                    score_threshold=args.soft_nms_min_score,  # 使用 soft_nms 自己的閾值
-                    method="gaussian",
-                )
-                boxes = boxes[keep_indices]
-                scores = updated_scores  # ✨ 使用被衰減後的新分數
-            else:
-                # 使用原始的標準 NMS
-                if boxes.shape[0] > 0:  # 確保有框可供 nms 處理
-                    keep_indices = nms(boxes, scores, args.nms_iou_threshold)
+            if not args.no_nms:  # 只有在 --no-nms 未被指定時，才執行 NMS/Soft-NMS
+                if args.use_soft_nms:
+                    # 使用 Soft-NMS
+                    keep_indices, updated_scores = soft_nms(
+                        boxes,
+                        scores,
+                        iou_threshold=args.nms_iou_threshold,
+                        sigma=args.soft_nms_sigma,
+                        score_threshold=args.soft_nms_min_score,
+                        method="gaussian",
+                    )
                     boxes = boxes[keep_indices]
-                    scores = scores[keep_indices]
+                    scores = updated_scores
+                else:
+                    # 使用標準 NMS
+                    if boxes.shape[0] > 0:
+                        keep_indices = nms(boxes, scores, args.nms_iou_threshold)
+                        boxes = boxes[keep_indices]
+                        scores = scores[keep_indices]
 
             # Step 4: Scale the final bounding box coordinates back to the original image size.
             if boxes.shape[0] > 0:

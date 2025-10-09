@@ -55,9 +55,7 @@ def parse_prediction_string(pred_str: str) -> list[dict]:
     return preds
 
 
-def draw_detections(
-    image_path: Path, detections: list[dict], conf_threshold: float, class_names: dict, title: str
-) -> plt.Figure:
+def draw_detections(image_path: Path, detections: list[dict], class_names: dict, title: str) -> plt.Figure:
     """Draws all detection boxes on a single image."""
     img_bgr = cv2.imread(str(image_path))
     if img_bgr is None:
@@ -72,10 +70,9 @@ def draw_detections(
     ax.imshow(img_rgb)
     ax.axis("off")
 
-    filtered_dets = [d for d in detections if d["conf"] >= conf_threshold]
     color_cycle = itertools.cycle(COLORS)
 
-    for det in filtered_dets:
+    for det in detections:
         x, y, w, h, cls_id, conf = det["x"], det["y"], det["w"], det["h"], det["cls"], det["conf"]
         color = next(color_cycle)
 
@@ -128,7 +125,7 @@ def main(args):
 
     # --- 1. Create Output Directory ---
     # ✨ MODIFIED: All visualizations are now saved under a unified './visualizations' directory.
-    base_output_dir = Path("./visualizations/seed_126171867/")
+    base_output_dir = Path("./visualizations/")
     base_output_dir.mkdir(parents=True, exist_ok=True)
     output_dir_specific = base_output_dir / f"viz_{csv_path.stem}"
     output_dir_specific.mkdir(parents=True, exist_ok=True)
@@ -162,11 +159,10 @@ def main(args):
             print(f"⚠️ Warning: Image file not found: {img_path}")
             continue
 
-        filtered_count = sum(1 for p in preds if p["conf"] >= args.conf_threshold)
-        title = f"Image ID: {image_id}\nSource: {csv_path.name}\nDetections: {filtered_count}"
+        title = f"Image ID: {image_id}\nSource: {csv_path.name}\nDetections: {len(preds)}"
 
         try:
-            fig = draw_detections(img_path, preds, args.conf_threshold, {0: "pig"}, title)
+            fig = draw_detections(img_path, preds, {0: "pig"}, title)
             output_path = output_dir_specific / f"{image_id}.png"
             fig.savefig(output_path, dpi=150, bbox_inches="tight")
             plt.close(fig)
@@ -182,7 +178,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--csv_path", type=str, required=True, help="Path to the submission.csv file to analyze.")
     parser.add_argument("--test_dir", type=str, default="./data/test/img", help="Directory containing the test images.")
-    parser.add_argument("--conf_threshold", type=float, default=0.3, help="Confidence threshold for visualization.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for random sampling.")
 
     # --- Mutually exclusive group for selecting which images to visualize ---

@@ -20,6 +20,7 @@ USER_DEFAULTS = {
     "use_cluster_aware": True,
     # --- 預測後處理優化 ---
     "use_soft_nms": False,
+    "use_nms": False,
     "nms_iou_threshold": 0.8,
     "soft_nms_sigma": 0.5,
     "soft_nms_min_score": 0.3,
@@ -154,6 +155,8 @@ def main():
     ]
     if args.use_soft_nms:
         predict_cmd.append("--use_soft_nms")
+    if args.use_nms:
+        predict_cmd.append("--use_nms")
 
     run_command(list(map(str, predict_cmd)))
     print(f"\n🎉 全部完成！提交檔案已儲存至 {args.submission_path}")
