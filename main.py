@@ -88,7 +88,8 @@ def main():
     print("\n[1/2] 🚀 Starting Training...")
     train_cmd = [
         sys.executable,
-        "src/train.py",
+        "-m",
+        "src.train",
         "--data_root",
         args.data_root,
         "--output_dir",
@@ -120,7 +121,8 @@ def main():
 
     predict_cmd = [
         sys.executable,
-        "src/predict.py",
+        "-m",
+        "src.predict",
         "--data_root",
         args.data_root,
         "--model_path",
