@@ -15,7 +15,7 @@ from pathlib import Path
 CONFIG = {
     # --- Training Configuration ---
     "epochs": 200,
-    "batch_size": 8,
+    "batch_size": 6,
     "accumulation_steps": 2,
     "lr": 0.0001,
     "seed": None,
@@ -24,7 +24,7 @@ CONFIG = {
     # --- Prediction / Post-processing Configuration ---
     "conf_threshold": 0.01,
     "post_processing": "none",
-    "nms_iou_threshold": 0.45,
+    "nms_iou_threshold": 0.7,
     "soft_nms_sigma": 0.5,
     # --- Path Configuration ---
     "data_root": Path("./data"),

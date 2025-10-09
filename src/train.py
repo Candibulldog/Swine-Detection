@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--output_dir", type=Path, default=Path("models"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--checkpoint_epochs", type=int, nargs="+", default=[60, 80, 100, 120])
-    parser.add_argument("--backbone", type=str, default="convnext_tiny", help="Backbone architecture")
+    parser.add_argument("--backbone", type=str, default="ConvNeXt_Small", help="Backbone architecture")
     parser.add_argument(
         "--cluster_csv_path",
         type=Path,
