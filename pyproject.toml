@@ -1,18 +1,39 @@
-# pyproject.toml
+# pyproject.toml (Enhanced Version)
 
 [tool.ruff]
+# 指定 ruff 應該檢查的源碼目錄
 src = ["src"]
 
+# 設定每行的最大長度
 line-length = 120
 
+# 指定目標 Python 版本，以便 ruff 提供相應的語法建議
 target-version = "py310"
 
 [tool.ruff.lint]
-# "E": pycodestyle errors (語法錯誤)
-# "W": pycodestyle warnings (風格警告)
-# "F": Pyflakes (未使用的變數/引入等)
-# "I": isort (自動排序 import)
-select = ["E", "W", "F", "I"]
+# 選擇一系列強大且實用的規則集
+# E, W: pycodestyle (基礎風格和錯誤)
+# F: Pyflakes (邏輯錯誤，如未使用的變數)
+# I: isort (導入排序)
+# UP: pyupgrade (升級到現代 Python 語法)
+# B: flake8-bugbear (發現潛在的 bugs)
+# A: flake8-builtins (防止覆蓋內建函式)
+select = ["E", "W", "F", "I", "UP", "B", "A"]
+
+# 忽略某些規則。E501 (line too long) 交給 formatter 處理。
+ignore = ["E501"]
+
+# 啟用對所有可修復規則的自動修復
+fixable = ["ALL"]
+
+# 如果你有未使用的變數想暫時保留（例如，為了接口兼容性），
+# 可以讓 ruff 忽略以底線開頭的未使用變數名
+dummy-variable-rgx = "^(_+|(_[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
 
 [tool.ruff.format]
+# 統一使用雙引號
 quote-style = "double"
+
+# 在二元運算符（如 + - * /）前換行，有時可讀性更好
+line-ending = "auto"

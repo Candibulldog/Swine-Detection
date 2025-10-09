@@ -1,7 +1,6 @@
 # src/dataset.py - Cluster-Aware Version
 
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import pandas as pd
 import torch
@@ -19,10 +18,10 @@ class PigDataset(Dataset):
     def __init__(
         self,
         data_root: Path,
-        frame_ids: Optional[List[int]],
+        frame_ids: list[int] | None,
         is_train: bool,
-        annotations_df: Optional[pd.DataFrame] = None,
-        cluster_dict: Optional[Dict[int, int]] = None,
+        annotations_df: pd.DataFrame | None = None,
+        cluster_dict: dict[int, int] | None = None,
         use_cluster_aware_aug: bool = False,
     ):
         self.data_root = Path(data_root)

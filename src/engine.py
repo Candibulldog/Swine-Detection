@@ -11,7 +11,7 @@ from .coco_eval import CocoEvaluator
 from .coco_utils import get_coco_api_from_dataset
 
 
-def train_one_epoch(model, optimizer, data_loader, device, epoch):
+def train_one_epoch(model, optimizer, data_loader, device, epoch, accumulation_steps: int = 1):
     """
     Trains the model for one epoch, incorporating mixed-precision training and gradient clipping.
 
@@ -33,6 +33,9 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
 
     progress_bar = tqdm(data_loader, desc=f"Epoch {epoch + 1} [Training]")
 
+    # Reset optimizer gradients at the beginning of the epoch, before the loop.
+    optimizer.zero_grad()
+
     for i, (images, targets) in enumerate(progress_bar):
         # Move images and targets to the specified device.
         images = [img.to(device) for img in images]
@@ -45,35 +48,53 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
             loss_dict = model(images, targets)
             total_loss = sum(loss for loss in loss_dict.values())
 
+            # ✨ Normalize the loss by the number of accumulation steps.
+            # This is crucial to ensure the magnitude of the accumulated gradient
+            # is equivalent to a single large batch.
+            if accumulation_steps > 1:
+                total_loss = total_loss / accumulation_steps
+
         # Sanity check: ensure the loss is a finite number. If it's NaN or infinity,
         # it can corrupt the model's weights, so we should skip this batch.
         if not math.isfinite(total_loss.item()):
             print(f"!!! Loss is {total_loss.item()}, stopping training at iteration {i} to prevent model corruption.")
             continue
 
-        # --- Backward Pass ---
-        optimizer.zero_grad()
         # scaler.scale() multiplies the loss by a scaling factor before backpropagation.
         scaler.scale(total_loss).backward()
 
-        # Optional: Gradient clipping to prevent exploding gradients.
-        # This caps the norm of the gradients to a maximum value (e.g., 1.0),
-        # stabilizing training when gradients become too large.
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # ✨ NEW: Conditional optimizer step.
+        # We only update the model weights and clear gradients every `accumulation_steps`.
+        if (i + 1) % accumulation_steps == 0:
+            # Optional: Gradient clipping to prevent exploding gradients.
+            # This caps the norm of the gradients to a maximum value (e.g., 1.0),
+            # stabilizing training when gradients become too large.
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-        # scaler.step() first unscales the gradients and then calls optimizer.step().
-        scaler.step(optimizer)
-        # Updates the scaling factor for the next iteration.
-        scaler.update()
+            # scaler.step() first unscales the gradients and then calls optimizer.step().
+            scaler.step(optimizer)
+            # Updates the scaling factor for the next iteration.
+            scaler.update()
+            optimizer.zero_grad()  # Reset gradients for the next accumulation cycle.
 
         # Record the loss values for logging.
+        # It's important to log the original, un-normalized loss for accurate reporting.
+        unscaled_total_loss = sum(v.item() for v in loss_dict.values())
+        loss_accumulator["total_loss"] += unscaled_total_loss
         for k, v in loss_dict.items():
             loss_accumulator[k] += v.item()
-        loss_accumulator["total_loss"] += total_loss.item()
 
         # Update the progress bar with the running average of the total loss.
         avg_loss = loss_accumulator["total_loss"] / (i + 1)
         progress_bar.set_postfix(loss=f"{avg_loss:.4f}")
+
+    # ✨ Handle any remaining gradients at the end of the epoch.
+    # This is important if the total number of batches is not a multiple of accumulation_steps.
+    if (len(data_loader)) % accumulation_steps != 0:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        scaler.step(optimizer)
+        scaler.update()
+        optimizer.zero_grad()
 
     # Print the average losses for the entire epoch.
     num_batches = len(data_loader)
@@ -107,7 +128,7 @@ def evaluate(model, data_loader, device):
     iou_types = ["bbox"]  # We are evaluating bounding box detection.
     coco_evaluator = CocoEvaluator(coco, iou_types)
 
-    # ✨ NEW: Accumulator for validation losses.
+    # ✨ Accumulator for validation losses.
     val_loss_accumulator = defaultdict(float)
 
     progress_bar = tqdm(data_loader, desc="Validation")
@@ -119,7 +140,7 @@ def evaluate(model, data_loader, device):
         with torch.amp.autocast("cuda"):
             outputs = model(images_gpu)
 
-        # ✨ NEW: Calculate validation loss.
+        # ✨ Calculate validation loss.
         # Temporarily switch to train mode to get the loss dictionary.
         # This is safe within the @torch.no_grad() context, as no gradients are computed.
         model.train()
@@ -137,7 +158,7 @@ def evaluate(model, data_loader, device):
 
         # Format the results into the dictionary structure expected by the COCO evaluator:
         # {image_id: {boxes, labels, scores}}.
-        res = {target["image_id"].item(): output for target, output in zip(targets, outputs_cpu)}
+        res = {target["image_id"].item(): output for target, output in zip(targets, outputs_cpu, strict=False)}
 
         # Update the evaluator with the results from the current batch.
         coco_evaluator.update(res)
