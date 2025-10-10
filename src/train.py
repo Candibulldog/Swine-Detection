@@ -1,4 +1,4 @@
-# src/train.py - Optimized for ConvNeXt-Tiny
+# src/train.py
 
 import argparse
 import csv

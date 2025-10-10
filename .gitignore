@@ -235,6 +235,7 @@ image_clusters.csv
 *.log
 logs/
 *.pdf
+.toml
 
 # 4. IDE / Editor specific (Ensuring they are ignored)
 .vscode/

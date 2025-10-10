@@ -9,7 +9,7 @@ from albumentations.pytorch import ToTensorV2
 # Constants
 # -----------------------------------------------------------------------------
 
-IMG_SIZE = 1024
+IMG_SIZE = 640
 DATASET_MEAN = [0.3615, 0.3564, 0.3543]
 DATASET_STD = [0.3089, 0.3045, 0.3051]
 

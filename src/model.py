@@ -1,4 +1,4 @@
-# src/model.py
+# src/model.py - ConvNeXt-Small Backbone with FPN for Faster R-CNN
 import torch.nn as nn
 from torchvision.models import ConvNeXt_Small_Weights, convnext_small
 from torchvision.models.detection import FasterRCNN
@@ -31,11 +31,11 @@ class ConvNeXtBackboneWithFPN(nn.Module):
 
 def create_model(num_classes: int):
     """
-    Creates a Faster R-CNN model with a ConvNeXt-Tiny backbone and FPN.
+    Creates a Faster R-CNN model with a ConvNeXt-Small backbone and FPN.
     """
-    print("✅ INFO: Creating model with ConvNeXt-Tiny backbone.")
+    print("✅ INFO: Creating model with ConvNeXt-Small backbone.")
 
-    # 1. Load ConvNeXt-Tiny backbone with ImageNet pre-trained weights
+    # 1. Load ConvNeXt-Small backbone with ImageNet pre-trained weights
     convnext_backbone = convnext_small(weights=ConvNeXt_Small_Weights.DEFAULT)
 
     # 2. Create a feature extractor to get intermediate features

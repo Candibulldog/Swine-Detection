@@ -13,3 +13,4 @@ albumentations
 # Utilities
 tqdm
 matplotlib
+pycocotools

@@ -84,7 +84,7 @@ def main():
         "--conf_threshold", type=float, default=0.01, help="Confidence threshold for filtering detections."
     )
     parser.add_argument(
-        "--batch_size", type=int, default=16, help="Batch size for inference (can be larger than training)."
+        "--batch_size", type=int, default=24, help="Batch size for inference (can be larger than training)."
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
     parser.add_argument(
@@ -103,7 +103,7 @@ def main():
     image_sizes = preload_image_sizes(test_image_dir)
     test_dataset = PigDataset(data_root=args.data_root, is_train=False)
 
-    num_workers = min(int(os.cpu_count() or 1), 8)
+    num_workers = min(int(os.cpu_count() * 0.75), 12)
     g = torch.Generator().manual_seed(args.seed)
     test_loader = DataLoader(
         test_dataset,
@@ -183,8 +183,6 @@ def main():
     submission_df.to_csv(args.output_path, index=False)
 
     print(f"\n✅ Prediction complete! Submission file saved to: {args.output_path}")
-    print("Top 5 predictions:")
-    print(submission_df.head().to_string())
 
 
 if __name__ == "__main__":

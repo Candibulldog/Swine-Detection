@@ -162,13 +162,18 @@ def main():
     ]
 
     # Logic for post-processing arguments
-    if args.post_processing == "none":
-        predict_cmd.append("--no-nms")
-    elif args.post_processing == "nms":
-        predict_cmd.extend(["--nms_iou_threshold", args.nms_iou_threshold])
+    if args.post_processing == "nms":
+        predict_cmd.extend(["--post_processing", "nms", "--nms_iou_threshold", args.nms_iou_threshold])
     elif args.post_processing == "soft_nms":
         predict_cmd.extend(
-            ["--use_soft_nms", "--nms_iou_threshold", args.nms_iou_threshold, "--soft_nms_sigma", args.soft_nms_sigma]
+            [
+                "--post_processing",
+                "soft_nms",
+                "--nms_iou_threshold",
+                args.nms_iou_threshold,
+                "--soft_nms_sigma",
+                args.soft_nms_sigma,
+            ]
         )
 
     run_command(predict_cmd)
