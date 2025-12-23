@@ -23,7 +23,7 @@ The entire workflow is managed by a central runner script, `main.py`, which auto
 ## Project Structure
 
 ```
-.
+Swine-Detection/
 ├── data/                  # Placeholder for dataset files
 │   ├── train/
 │   │   ├── img/
@@ -62,8 +62,8 @@ It is highly recommended to use a virtual environment (e.g., `venv` or `conda`) 
 
 ```bash
 # Using conda
-conda create -n cvpdl_hw1 python=3.10
-conda activate cvpdl_hw1
+conda create -n swine_detection python=3.10
+conda activate swine_detection
 ```
 
 ### 3. Install PyTorch
