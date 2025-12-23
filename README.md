@@ -1,4 +1,4 @@
-# Object Detection for Group-hosed Swine (2025 CVPDL HW1)
+# Object Detection for Group-hosed Swine
 
 This project is a comprehensive solution for the "Object Detection for Group-hosed Swine" assignment in the NTU CVPDL course. It implements a high-performance training and inference pipeline using a Faster R-CNN model with a ConvNeXt backbone, incorporating modern deep learning best practices for achieving high mAP scores.
 
