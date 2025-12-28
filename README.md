@@ -1,4 +1,10 @@
-# Object Detection for Group-hosed Swine
+# Object Detection for Group-hosed Swine (2025 CVPDL HW1)
+
+<p align="center">
+  <img src="assets/image.png" width="512" alt="Generated MNIST Digits">
+  <br>
+  <em>Swine Detection Resoult</em>
+</p>
 
 This project is a comprehensive solution for the "Object Detection for Group-hosed Swine" assignment in the NTU CVPDL course. It implements a high-performance training and inference pipeline using a Faster R-CNN model with a ConvNeXt backbone, incorporating modern deep learning best practices for achieving high mAP scores.
 
@@ -23,7 +29,7 @@ The entire workflow is managed by a central runner script, `main.py`, which auto
 ## Project Structure
 
 ```
-Swine-Detection/
+.
 ├── data/                  # Placeholder for dataset files
 │   ├── train/
 │   │   ├── img/
@@ -62,8 +68,8 @@ It is highly recommended to use a virtual environment (e.g., `venv` or `conda`) 
 
 ```bash
 # Using conda
-conda create -n swine_detection python=3.10
-conda activate swine_detection
+conda create -n cvpdl_hw1 python=3.10
+conda activate cvpdl_hw1
 ```
 
 ### 3. Install PyTorch
